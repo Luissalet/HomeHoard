@@ -7,7 +7,7 @@ mcp = FastMCP("HomeHoard")
 
 @mcp.tool()
 def home_find_item(query: str, limit: int = 5) -> dict:
-    """Find a household object and return its full location. Accepts Spanish questions and small spelling errors. If there is no match, say so; never invent a location. The timestamp is when the inventory copy was exported."""
+    """Find household objects by name, description, tag or location and return full paths. Accepts Spanish questions and small spelling errors. If there is no match, say so; never invent a location. The timestamp is when the inventory copy was exported."""
     return find(query, limit)
 
 

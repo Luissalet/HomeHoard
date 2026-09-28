@@ -37,6 +37,29 @@ class InventoryTest(unittest.TestCase):
             inventory.save(fixture())
             self.assertEqual(inventory.find("taladro")["status"], "not_found")
 
+    def test_tag_search_matches_active_tags_and_keeps_full_location(self):
+        bundle = fixture()
+        bundle["data"]["tags"] = [
+            {"id": "electric", "name": "Material eléctrico", "deleted_at": None},
+            {"id": "old", "name": "Cocina antigua", "deleted_at": 3},
+        ]
+        bundle["data"]["itemTags"] = [
+            {"item_id": "item", "tag_id": "electric"},
+            {"item_id": "item", "tag_id": "old"},
+            {"item_id": "gone", "tag_id": "electric"},
+        ]
+        with tempfile.TemporaryDirectory() as temp, patch.object(inventory, "SNAPSHOT", Path(temp) / "snapshot.json"):
+            inventory.save(bundle)
+            exact = inventory.find("material eléctrico")
+            self.assertEqual([hit["id"] for hit in exact["matches"]], ["item"])
+            self.assertEqual(exact["matches"][0]["tags"], ["Material eléctrico"])
+            self.assertTrue(exact["matches"][0]["location"].endswith("Estantería › Caja roja"))
+            self.assertEqual(inventory.find("electr")["matches"][0]["id"], "item")
+            self.assertEqual(inventory.find("material eléctrico linterna")["matches"][0]["id"], "item")
+            self.assertEqual(inventory.find("material eléctrico cocina")["status"], "not_found")
+            self.assertEqual(inventory.find("cocina antigua")["status"], "not_found")
+            self.assertNotIn("secret/photo.jpg", inventory.SNAPSHOT.read_text(encoding="utf-8"))
+
     def test_invalid_export_does_not_replace_snapshot(self):
         with tempfile.TemporaryDirectory() as temp, patch.object(inventory, "SNAPSHOT", Path(temp) / "snapshot.json"):
             inventory.save(fixture())

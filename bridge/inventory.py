@@ -2,11 +2,12 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 import unicodedata
 from pathlib import Path
 
-SNAPSHOT = Path(__file__).resolve().parent.parent / "data" / "faustus-inventory.json"
+SNAPSHOT = Path(os.environ.get("HOMEHOARD_SNAPSHOT") or Path(__file__).resolve().parent.parent / "data" / "faustus-inventory.json")
 STOP = {"donde", "esta", "estan", "tengo", "guardado", "guardada", "guardados", "guardadas", "puse", "deje", "hay", "el", "la", "los", "las", "un", "una", "mi", "mis", "que", "en", "de", "por", "favor"}
 TABLES = ("households", "homes", "floors", "rooms", "containers", "items", "tags", "itemTags")
 
@@ -80,6 +81,12 @@ def find(query: str, limit: int = 5) -> dict:
         return {"status": "empty_query", "message": "Indica el nombre del objeto que buscas.", "matches": [], "exported_at": snapshot.get("exported_at")}
     data = snapshot["data"]
     lookup = {table: {row.get("id"): row for row in data[table] if row.get("deleted_at") is None} for table in ("homes", "floors", "rooms", "containers")}
+    tags = {row.get("id"): row.get("name", "") for row in data["tags"] if row.get("deleted_at") is None}
+    item_tags: dict[str, list[str]] = {}
+    for relation in data["itemTags"]:
+        tag = tags.get(relation.get("tag_id"))
+        if tag:
+            item_tags.setdefault(relation.get("item_id"), []).append(tag)
     matches = []
     for item in data["items"]:
         if item.get("deleted_at") is not None:
@@ -104,6 +111,8 @@ def find(query: str, limit: int = 5) -> dict:
         name = normalized(str(item.get("name", "")))
         note = normalized(str(item.get("description") or ""))
         location = normalized(" ".join(route))
+        item_tag_names = item_tags.get(item.get("id"), [])
+        tag_texts = [normalized(tag) for tag in item_tag_names]
         score = 0
         for word in words:
             points = 0
@@ -111,13 +120,15 @@ def find(query: str, limit: int = 5) -> dict:
             elif word in name.split(): points = 80
             elif word in name: points = 65
             elif len(word) >= 5 and any(one_edit(piece, word) for piece in name.split()): points = 45
+            elif any(word == tag or word in tag.split() for tag in tag_texts): points = 50
+            elif any(word in tag for tag in tag_texts): points = 40
             elif word in note: points = 20
             elif word in location: points = 15
             if not points:
                 break
             score += points
         else:
-            matches.append((score, {"id": item.get("id"), "name": item.get("name"), "quantity": item.get("quantity", 1), "location": " › ".join(route), "note": item.get("description") or None}))
+            matches.append((score, {"id": item.get("id"), "name": item.get("name"), "quantity": item.get("quantity", 1), "location": " › ".join(route), "note": item.get("description") or None, "tags": item_tag_names}))
     matches.sort(key=lambda match: (-match[0], normalized(str(match[1]["name"]))))
     found = [match for _, match in matches[:max(1, min(limit, 20))]]
     return {"status": "found" if found else "not_found", "query": query, "matches": found, "exported_at": snapshot.get("exported_at"), "message": "Objeto no encontrado en la copia local de HomeHoard." if not found else None}
