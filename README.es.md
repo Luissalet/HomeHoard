@@ -33,7 +33,7 @@ También puedes preguntar «¿qué hay en la caja roja?» o «enumera todo lo de
 
 Para una copia procedente del móvil, usa **Ajustes → Exportar copia** y cárgala en `http://127.0.0.1:5196/` en el ordenador. El puente se inicia con `python bridge/server.py` o desde Faustus.
 
-Tras la primera actualización correcta, los cambios posteriores de este navegador se envían automáticamente mientras el puente local esté abierto. Si está cerrado, **Actualizar Faustus ahora** muestra el error de conexión. En móvil, transfiere el JSON al ordenador por el medio local que prefieras: esa transferencia sigue siendo manual. El puente escucha solo en `127.0.0.1` y no sincroniza por internet.
+Tras la primera actualización correcta, los cambios posteriores de este navegador se envían automáticamente mientras el puente local esté abierto. Si falla un envío automático porque está cerrado, al volver a la pestaña se reintenta con el inventario más reciente. **Actualizar Faustus ahora** muestra el error de conexión inmediatamente. En móvil, transfiere el JSON al ordenador por el medio local que prefieras: esa transferencia sigue siendo manual. El puente escucha solo en `127.0.0.1` y no sincroniza por internet.
 
 Para pruebas aisladas o una carpeta local diferente, configura `HOMEHOARD_SNAPSHOT` con la ruta absoluta de otra copia de consulta antes de iniciar el puente MCP.
 

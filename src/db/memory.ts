@@ -58,12 +58,21 @@ export class MemorySource implements DataSource {
   private syncTimer: ReturnType<typeof setTimeout> | null = null;
   private syncVersion = 0;
   private syncing = false;
+  private syncFailed = false;
 
   async ready(): Promise<void> {
     if (this.hydrated) return;
     this.hydrate();
     await this.getDefaultHousehold();
     this.hydrated = true;
+    if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
+      window.addEventListener('focus', () => { if (this.syncFailed) this.scheduleFaustusSync(); });
+    }
+    if (typeof document !== 'undefined' && typeof document.addEventListener === 'function') {
+      document.addEventListener('visibilitychange', () => {
+        if (!document.hidden && this.syncFailed) this.scheduleFaustusSync();
+      });
+    }
     this.scheduleFaustusSync();
   }
 
@@ -118,9 +127,11 @@ export class MemorySource implements DataSource {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ ...bundle, data: { ...bundle.data, items } }),
           });
-          if (!response.ok) return;
+          if (!response.ok) { this.syncFailed = true; return; }
+          this.syncFailed = false;
         } catch {
-          // The local bridge may be closed. A later edit retries; the manual button reports errors.
+          // The local bridge may be closed. Returning to the app retries; the manual button reports errors.
+          this.syncFailed = true;
           return;
         }
       } while (sentVersion !== this.syncVersion);
