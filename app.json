@@ -1,0 +1,42 @@
+{
+  "expo": {
+    "name": "HomeHoard",
+    "slug": "homehoard",
+    "scheme": "homehoard",
+    "version": "0.2.0",
+    "icon": "./app-icon.png",
+    "orientation": "portrait",
+    "userInterfaceStyle": "dark",
+    "newArchEnabled": false,
+    "splash": {
+      "backgroundColor": "#0A0A0C"
+    },
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "app.homehoard"
+    },
+    "android": {
+      "package": "com.homehoard.myapp"
+    },
+    "web": {
+      "bundler": "metro",
+      "output": "single",
+      "favicon": "./app-icon.png"
+    },
+    "plugins": [
+      "expo-router",
+      "expo-sqlite",
+      [
+        "expo-camera",
+        { "cameraPermission": "HomeHoard usa la cámara para leer etiquetas QR de tu inventario." }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "HomeHoard usa tus fotos para ilustrar los objetos de tu inventario.",
+          "cameraPermission": "HomeHoard usa la cámara para hacer fotos de tus objetos."
+        }
+      ]
+    ]
+  }
+}
