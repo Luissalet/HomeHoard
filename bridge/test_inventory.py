@@ -66,6 +66,31 @@ class InventoryTest(unittest.TestCase):
             with self.assertRaises(ValueError): inventory.save({"format": "wrong"})
             self.assertEqual(inventory.status()["items"], 1)
 
+    def test_list_location_includes_nested_contents_and_paginates(self):
+        bundle = fixture()
+        bundle["data"]["containers"].append({"id": "other", "name": "Caja roja", "room_id": "room", "parent_container_id": None, "deleted_at": None})
+        bundle["data"]["containers"][0]["room_id"] = "room"
+        bundle["data"]["containers"][1]["room_id"] = "room"
+        bundle["data"]["items"].append({"id": "cable", "name": "Cable USB", "room_id": "room", "container_id": "shelf", "quantity": 3, "deleted_at": None})
+        bundle["data"]["items"].append({"id": "tape", "name": "Cinta", "room_id": "room", "container_id": "other", "quantity": 2, "deleted_at": None})
+        with tempfile.TemporaryDirectory() as temp, patch.object(inventory, "SNAPSHOT", Path(temp) / "snapshot.json"):
+            inventory.save(bundle)
+            ambiguous = inventory.list_location("Caja roja")
+            self.assertEqual(ambiguous["status"], "ambiguous")
+            self.assertEqual(len(ambiguous["locations"]), 2)
+            box = inventory.list_location("box")
+            self.assertEqual(box["total_items"], 1)
+            self.assertEqual([item["name"] for item in box["items"]], ["Linterna Philips"])
+            shelf = inventory.list_location("Estantería")
+            self.assertEqual(shelf["total_items"], 2)
+            self.assertEqual(shelf["total_quantity"], 4)
+            self.assertEqual(inventory.list_location("Estantería del Trastero")["location"]["id"], "shelf")
+            self.assertEqual([item["name"] for item in inventory.list_location("shelf", offset=1, limit=1)["items"]], ["Linterna Philips"])
+            room = inventory.list_location("Trastero")
+            self.assertEqual(room["total_items"], 3)
+            self.assertEqual(inventory.list_location("sótano")["status"], "not_found")
+            with self.assertRaises(ValueError): inventory.list_location("Trastero", limit=0)
+
 
 if __name__ == "__main__":
     unittest.main()

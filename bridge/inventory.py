@@ -132,3 +132,92 @@ def find(query: str, limit: int = 5) -> dict:
     matches.sort(key=lambda match: (-match[0], normalized(str(match[1]["name"]))))
     found = [match for _, match in matches[:max(1, min(limit, 20))]]
     return {"status": "found" if found else "not_found", "query": query, "matches": found, "exported_at": snapshot.get("exported_at"), "message": "Objeto no encontrado en la copia local de HomeHoard." if not found else None}
+
+
+def list_location(location: str, offset: int = 0, limit: int = 50) -> dict:
+    """List the complete contents of one room or container, with pagination."""
+    snapshot = load()
+    if snapshot is None:
+        return {"status": "no_snapshot", "locations": [], "items": []}
+    if not isinstance(location, str) or not location.strip():
+        return {"status": "empty_location", "locations": [], "items": []}
+    if not isinstance(offset, int) or isinstance(offset, bool) or offset < 0 or not isinstance(limit, int) or isinstance(limit, bool) or not 1 <= limit <= 100:
+        raise ValueError("offset debe ser >= 0 y limit debe estar entre 1 y 100")
+
+    data = snapshot["data"]
+    active = lambda table: {row.get("id"): row for row in data[table] if row.get("deleted_at") is None}
+    homes, floors, rooms, containers = (active(table) for table in ("homes", "floors", "rooms", "containers"))
+    def room_path(room):
+        floor = floors.get(room.get("floor_id"))
+        home = homes.get(floor.get("home_id")) if floor else None
+        return " › ".join(row["name"] for row in (home, floor, room) if row)
+
+    def container_path(container):
+        room = rooms.get(container.get("room_id"))
+        if room is None:
+            return None
+        chain, seen, current = [], set(), container
+        while current is not None:
+            cid = current.get("id")
+            if cid in seen or current.get("room_id") != room.get("id"):
+                return None
+            seen.add(cid)
+            chain.insert(0, current["name"])
+            parent_id = current.get("parent_container_id")
+            current = containers.get(parent_id) if parent_id else None
+            if parent_id and current is None:
+                return None
+        return room_path(room) + " › " + " › ".join(chain)
+
+    choices = ([{"id": row["id"], "kind": "room", "name": row["name"], "path": room_path(row), "room_id": row["id"]} for row in rooms.values()] +
+               [{"id": row["id"], "kind": "container", "name": row["name"], "path": path, "room_id": row["room_id"]}
+                for row in containers.values() if (path := container_path(row))])
+    needle = normalized(location.strip())
+    matched = [choice for choice in choices if choice["id"] == location or normalized(choice["path"]) == needle]
+    if not matched:
+        matched = [choice for choice in choices if normalized(choice["name"]) == needle]
+    if not matched:
+        matched = [choice for choice in choices if needle in normalized(choice["path"])]
+    if not matched:
+        words = [word for word in terms(location) if word not in {"del", "al", "dentro", "contenido", "contenidos", "todo", "todos"}]
+        if words:
+            matched = [choice for choice in choices if all(word in normalized(choice["path"]).split() for word in words)]
+            named = [choice for choice in matched if all(word in words for word in normalized(choice["name"]).split())]
+            if named:
+                longest = max(len(normalized(choice["name"]).split()) for choice in named)
+                named = [choice for choice in named if len(normalized(choice["name"]).split()) == longest]
+                deepest = max(choice["path"].count(" › ") for choice in named)
+                matched = [choice for choice in named if choice["path"].count(" › ") == deepest]
+    if not matched:
+        return {"status": "not_found", "locations": [], "items": [], "exported_at": snapshot.get("exported_at")}
+    if len(matched) != 1:
+        return {"status": "ambiguous", "locations": matched[:20], "items": [], "exported_at": snapshot.get("exported_at")}
+
+    selected = matched[0]
+    def inside(item):
+        if item.get("room_id") != selected["room_id"]:
+            return False
+        if selected["kind"] == "room":
+            return True
+        cid, seen = item.get("container_id"), set()
+        while cid and cid not in seen:
+            if cid == selected["id"]:
+                return True
+            seen.add(cid)
+            parent = containers.get(cid)
+            cid = parent.get("parent_container_id") if parent else None
+        return False
+
+    items = []
+    for item in data["items"]:
+        if item.get("deleted_at") is not None or not inside(item):
+            continue
+        container = containers.get(item.get("container_id"))
+        path = container_path(container) if container else room_path(rooms[selected["room_id"]])
+        if path is None:
+            continue
+        items.append({"id": item.get("id"), "name": item.get("name"), "quantity": item.get("quantity", 1), "location": path})
+    items.sort(key=lambda item: (normalized(str(item["name"])), str(item["id"])))
+    return {"status": "found", "location": selected, "total_items": len(items),
+            "total_quantity": sum(item["quantity"] for item in items), "offset": offset,
+            "items": items[offset:offset + limit], "exported_at": snapshot.get("exported_at")}

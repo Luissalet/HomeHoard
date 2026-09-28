@@ -29,6 +29,8 @@ Funciona sin cuenta ni servicios externos. La web guarda sus datos en este naveg
 1. En HomeHoard abierto en este ordenador, ve a **Ajustes → Actualizar Faustus ahora**. La copia de consulta **excluye las fotos** y se guarda en `data/faustus-inventory.json`.
 2. Pregunta a Faustus «¿dónde tengo guardada la linterna Philips?» o «¿dónde está el material eléctrico?». `home_find_item` busca también por etiquetas y devuelve las etiquetas de cada objeto, la ruta completa y la fecha de la copia. Si no está en el inventario, responde que no lo encuentra.
 
+También puedes preguntar «¿qué hay en la caja roja?» o «enumera todo lo del trastero». `home_list_location` incluye las cajas anidadas, devuelve el total completo y pagina inventarios largos. Si hay varias ubicaciones con el mismo nombre, Faustus pide la ruta o el ID para elegir una.
+
 Para una copia procedente del móvil, usa **Ajustes → Exportar copia** y cárgala en `http://127.0.0.1:5196/` en el ordenador. El puente se inicia con `python bridge/server.py` o desde Faustus.
 
 Tras la primera actualización correcta, los cambios posteriores de este navegador se envían automáticamente mientras el puente local esté abierto. Si está cerrado, **Actualizar Faustus ahora** muestra el error de conexión. En móvil, transfiere el JSON al ordenador por el medio local que prefieras: esa transferencia sigue siendo manual. El puente escucha solo en `127.0.0.1` y no sincroniza por internet.

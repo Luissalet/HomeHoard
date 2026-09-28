@@ -23,6 +23,8 @@ A **fully local home inventory**. Record where things live and find them by name
 1. In HomeHoard on this computer, choose **Settings → Update Faustus now**. This writes a photo-free query snapshot to `data/faustus-inventory.json`.
 2. Ask Faustus where an item is, including by its tag (for example, “Where is my electrical gear?”). `home_find_item` returns each item's tags, full location path and snapshot date; an absent item is reported as absent.
 
+Ask “What is in the red box?” or “List everything in the storage room” to use `home_list_location`. It includes nested boxes, returns the complete count and paginates long inventories. If several locations share a name, Faustus asks you to choose a path or ID.
+
 After the first successful update, this browser sends later inventory changes to the local bridge automatically while it is open. If the bridge is closed, use **Update Faustus now** to see and resolve the connection error. For a mobile backup, export JSON from **Settings → Export backup**, then import it at `http://127.0.0.1:5196/` on the computer. Start that bridge with `python bridge/server.py` or from Faustus. Mobile transfers remain manual; the bridge listens only on `127.0.0.1`.
 
 For isolated tests or a custom local data directory, set `HOMEHOARD_SNAPSHOT` to the absolute path of a separate query snapshot before starting the MCP bridge.
