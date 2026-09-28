@@ -2,6 +2,7 @@
 // Evita expo-sqlite en el bundle web (que da problemas) y persiste en localStorage.
 // Misma semantica que SqliteSource; la logica de arbol/busqueda esta testeada en Node.
 import { newId, now } from './ids';
+import { hasExampleItems } from './demo';
 import { rankSearch } from './searchUtil';
 import type {
   Container,
@@ -26,6 +27,7 @@ import type {
 } from './types';
 
 const STORAGE_KEY = 'homehoard.v1';
+const FAUSTUS_AUTO_KEY = 'homehoard.faustus.auto';
 
 interface Store {
   households: Household[];
@@ -53,12 +55,16 @@ export class MemorySource implements DataSource {
     itemTags: [],
   };
   private hydrated = false;
+  private syncTimer: ReturnType<typeof setTimeout> | null = null;
+  private syncVersion = 0;
+  private syncing = false;
 
   async ready(): Promise<void> {
     if (this.hydrated) return;
     this.hydrate();
     await this.getDefaultHousehold();
     this.hydrated = true;
+    this.scheduleFaustusSync();
   }
 
   private hydrate(): void {
@@ -78,9 +84,48 @@ export class MemorySource implements DataSource {
     try {
       if (typeof localStorage !== 'undefined') {
         localStorage.setItem(STORAGE_KEY, JSON.stringify(this.s));
+        this.scheduleFaustusSync();
       }
     } catch {
       // ignora cuota / no disponible
+    }
+  }
+
+  private scheduleFaustusSync(): void {
+    if (typeof window === 'undefined' || !['127.0.0.1', 'localhost'].includes(window.location.hostname)) return;
+    try {
+      if (localStorage.getItem(FAUSTUS_AUTO_KEY) !== '1') return;
+    } catch {
+      return;
+    }
+    this.syncVersion += 1;
+    if (this.syncTimer) clearTimeout(this.syncTimer);
+    this.syncTimer = setTimeout(() => { void this.flushFaustusSync(); }, 400);
+  }
+
+  private async flushFaustusSync(): Promise<void> {
+    if (this.syncing) return;
+    this.syncing = true;
+    try {
+      let sentVersion: number;
+      do {
+        sentVersion = this.syncVersion;
+        const bundle = await this.exportAll();
+        if (hasExampleItems(bundle.data.items)) return;
+        const items = bundle.data.items.map((item) => ({ ...item, photo_uri: null }));
+        try {
+          const response = await fetch('http://127.0.0.1:5196/api/import', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ ...bundle, data: { ...bundle.data, items } }),
+          });
+          if (!response.ok) return;
+        } catch {
+          // The local bridge may be closed. A later edit retries; the manual button reports errors.
+          return;
+        }
+      } while (sentVersion !== this.syncVersion);
+    } finally {
+      this.syncing = false;
     }
   }
 
@@ -623,5 +668,6 @@ export class MemorySource implements DataSource {
       }
     }
     this.s = next;
+    this.scheduleFaustusSync();
   }
 }

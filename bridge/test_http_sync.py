@@ -23,6 +23,9 @@ class LocalSyncTest(unittest.TestCase):
                 with urllib.request.urlopen(urllib.request.Request(url, method="OPTIONS", headers={"Origin": "http://127.0.0.1:19006"})) as response:
                     self.assertEqual(response.status, 204)
                     self.assertEqual(response.headers["Access-Control-Allow-Origin"], "http://127.0.0.1:19006")
+                with urllib.request.urlopen(urllib.request.Request(url, method="OPTIONS", headers={"Origin": "http://localhost:8082"})) as response:
+                    self.assertEqual(response.status, 204)
+                    self.assertEqual(response.headers["Access-Control-Allow-Origin"], "http://localhost:8082")
                 payload = json.dumps(fixture()).encode()
                 with urllib.request.urlopen(urllib.request.Request(url, data=payload, headers={"Origin": "http://127.0.0.1:19006", "Content-Type": "application/json"})) as response:
                     self.assertEqual(json.load(response)["items"], 1)

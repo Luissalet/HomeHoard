@@ -9,7 +9,16 @@ from urllib.parse import urlparse
 from inventory import save, status
 
 PORT = 5196
-ORIGINS = {f"http://127.0.0.1:{port}" for port in (PORT, 19006, 8081)} | {f"http://localhost:{port}" for port in (PORT, 19006, 8081)}
+
+
+def local_origin(origin: str) -> bool:
+    try:
+        parsed = urlparse(origin)
+        return (parsed.scheme == "http" and parsed.hostname in ("127.0.0.1", "localhost")
+                and parsed.port is not None and not parsed.username and not parsed.password
+                and not parsed.path and not parsed.query and not parsed.fragment)
+    except ValueError:
+        return False
 PAGE = """<!doctype html><html lang="es"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>HomeHoard · Faustus</title>
 <link rel="icon" type="image/png" href="/icon.png"><style>
 :root{font-family:system-ui,sans-serif;color:#182a24;background:#f6f3eb}*{box-sizing:border-box}body{margin:0}main{max-width:690px;margin:0 auto;padding:42px 22px 80px}header{display:flex;align-items:center;gap:11px;font-size:19px;font-weight:800}header b{display:grid;place-items:center;width:34px;height:34px;border-radius:10px;background:#1d6450;color:white}.eyebrow{color:#1d6450;font-weight:700;margin:88px 0 12px}h1{font-size:clamp(36px,7vw,58px);letter-spacing:-.045em;line-height:1.03;margin:0 0 20px}p{line-height:1.65;color:#52635a}section{background:#fffefa;border:1px solid #d9d5c9;border-radius:18px;padding:28px;margin:32px 0}h2{font-size:19px;margin:0 0 8px}label{display:block;margin:24px 0 10px;font-weight:700}input{font:inherit;max-width:100%;color:#182a24}button{font:inherit;font-weight:700;background:#1d6450;color:white;border:0;border-radius:11px;padding:13px 20px;cursor:pointer;margin-top:17px}button:hover{background:#16523f}button:focus-visible,input:focus-visible{outline:3px solid #9a8060;outline-offset:3px}.status{font-size:14px;font-weight:650;color:#1d6450}.error{color:#b3342d}.foot{font-size:13px}
@@ -28,7 +37,7 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Cache-Control", "no-store")
         origin = self.headers.get("Origin", "")
-        if origin in ORIGINS:
+        if local_origin(origin):
             self.send_header("Access-Control-Allow-Origin", origin)
             self.send_header("Vary", "Origin")
         self.send_header("Content-Length", str(len(body)))
@@ -37,7 +46,7 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_OPTIONS(self) -> None:
         origin = self.headers.get("Origin", "")
-        if urlparse(self.path).path != "/api/import" or origin not in ORIGINS:
+        if urlparse(self.path).path != "/api/import" or not local_origin(origin):
             self._json(403, {"error": "Origen no permitido"})
             return
         self.send_response(204)
@@ -73,7 +82,7 @@ class Handler(BaseHTTPRequestHandler):
             self._json(404, {"error": "No encontrado"})
             return
         origin = self.headers.get("Origin", "")
-        if origin and origin not in ORIGINS:
+        if origin and not local_origin(origin):
             self._json(403, {"error": "Origen no permitido"})
             return
         try:

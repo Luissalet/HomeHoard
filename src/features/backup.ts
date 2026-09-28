@@ -139,6 +139,7 @@ export async function updateFaustus(data: DataSource): Promise<number> {
   });
   if (!response.ok) throw new Error('No se pudo actualizar Faustus. Comprueba que el puente local está abierto.');
   const result = await response.json();
+  try { localStorage.setItem('homehoard.faustus.auto', '1'); } catch { /* manual update still succeeded */ }
   return result.items;
 }
 

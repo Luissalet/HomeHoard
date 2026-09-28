@@ -31,7 +31,7 @@ Funciona sin cuenta ni servicios externos. La web guarda sus datos en este naveg
 
 Para una copia procedente del móvil, usa **Ajustes → Exportar copia** y cárgala en `http://127.0.0.1:5196/` en el ordenador. El puente se inicia con `python bridge/server.py` o desde Faustus.
 
-Tras mover o añadir objetos, actualiza la copia. En móvil, transfiere el JSON al ordenador por el medio local que prefieras. El puente escucha solo en `127.0.0.1` y no sincroniza por internet.
+Tras la primera actualización correcta, los cambios posteriores de este navegador se envían automáticamente mientras el puente local esté abierto. Si está cerrado, **Actualizar Faustus ahora** muestra el error de conexión. En móvil, transfiere el JSON al ordenador por el medio local que prefieras: esa transferencia sigue siendo manual. El puente escucha solo en `127.0.0.1` y no sincroniza por internet.
 
 ## Arranque
 

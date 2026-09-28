@@ -184,7 +184,7 @@ export default function AjustesScreen() {
             <Ionicons name="chatbubble-ellipses-outline" size={22} color={colors.accent} />
             <View style={{ flex: 1 }}>
               <Text style={styles.rowTitle}>¿Dónde guardé la linterna?</Text>
-              <Text style={styles.dim}>Faustus puede buscar tus objetos con una copia local sin fotos. Actualízala después de mover o añadir cosas.</Text>
+              <Text style={styles.dim}>Faustus puede buscar tus objetos con una copia local sin fotos. Después de la primera actualización, los cambios de esta web se enviarán solos mientras el puente local esté abierto.</Text>
             </View>
           </View>
           {Platform.OS === 'web' && ['127.0.0.1', 'localhost'].includes(window.location.hostname) ? <View style={{ marginTop: space(3), gap: space(2) }}><Button label="Actualizar Faustus ahora" onPress={syncFaustus} /><Button label="Abrir puente local" variant="ghost" onPress={() => { void Linking.openURL('http://127.0.0.1:5196/'); }} /></View> : <Text style={[styles.dim, { marginTop: space(3) }]}>Pasa la copia JSON a tu ordenador y cárgala en el puente local de HomeHoard. No se envía a ningún servicio externo.</Text>}
