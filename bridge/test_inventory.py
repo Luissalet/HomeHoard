@@ -21,6 +21,9 @@ def fixture():
 
 
 class InventoryTest(unittest.TestCase):
+    def setUp(self):
+        inventory.use_store(None)       # these tests use the snapshot file, not a server's live home
+
     def test_natural_question_and_typo_return_full_path_without_photos(self):
         with tempfile.TemporaryDirectory() as temp, patch.object(inventory, "SNAPSHOT", Path(temp) / "snapshot.json"):
             inventory.save(fixture())

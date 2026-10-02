@@ -34,3 +34,10 @@ data/
 __pycache__/
 *.pyc
 *.bak
+
+# python
+venv/
+.venv/
+
+# web export served by bridge/server.py (npm run build:web)
+bridge/web/

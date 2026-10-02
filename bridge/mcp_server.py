@@ -1,28 +1,135 @@
-"""Faustus MCP tools. Reads only the local snapshot; no cloud or write tools."""
+"""Stdio MCP bridge for HomeHoard.
+
+It never opens the home file: every tool call is proxied to the running server (``POST /api/agent/call``) with the
+Bearer token from ``<DATA_DIR>/mcp-token``. The tool list comes from ``GET /api/agent/tools`` at start, so the bridge and
+the server never disagree. When nothing answers, the bridge starts the server (``bridge/server.py``, detached) and waits
+for it; HOMEHOARD_BRIDGE_AUTOSTART=0 turns that off.
+"""
+from __future__ import annotations
+
+import json
+import logging
+import os
+import subprocess
+import sys
+import time
+from pathlib import Path
+from typing import Any, Sequence
+from urllib.parse import urlparse
+
+import httpx
 from mcp.server.fastmcp import FastMCP
-from mcp.types import ToolAnnotations
-from inventory import find, list_location, status
+from mcp.types import TextContent, Tool as MCPTool, ToolAnnotations
 
-mcp = FastMCP("HomeHoard")
-
-
-@mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))
-def home_find_item(query: str, limit: int = 5) -> dict:
-    """Find household objects by name, description, tag or location and return full paths. Accepts Spanish questions and small spelling errors. If there is no match, say so; never invent a location. The timestamp is when the inventory copy was exported."""
-    return find(query, limit)
+BRIDGE = Path(__file__).resolve().parent
+ROOT = BRIDGE.parent
+BASE_URL = os.environ.get("HOMEHOARD_URL", "http://127.0.0.1:5196").rstrip("/")
+DATA_DIR = Path(os.environ.get("HOMEHOARD_DATA_DIR") or ROOT / "data")
+TOKEN_FILE = Path(os.environ.get("HOMEHOARD_TOKEN_FILE") or DATA_DIR / "mcp-token")
+NOT_RUNNING = "Abre HomeHoard en el ordenador (python bridge/server.py) para que el asistente pueda consultar tu casa."
 
 
-@mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))
-def home_inventory_status() -> dict:
-    """Check whether Faustus has a local HomeHoard snapshot and when it was exported."""
-    return status()
+def _check_local(url: str) -> None:
+    parsed = urlparse(url)
+    if parsed.scheme != "http" or parsed.hostname not in ("127.0.0.1", "localhost", "::1"):
+        raise SystemExit("The MCP bridge only connects to the local server.")
 
 
-@mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))
-def home_list_location(location: str, offset: int = 0, limit: int = 50) -> dict:
-    """List all objects in one room, piece of furniture or box, including nested contents. Use a location name, full path or ID. If names are ambiguous, ask which location the user means. Paginate with offset and limit; total_items is the full count."""
-    return list_location(location, offset, limit)
+def _token() -> str:
+    env = os.environ.get("HOMEHOARD_TOKEN")
+    if env:
+        return env.strip()
+    return TOKEN_FILE.read_text(encoding="utf-8-sig").strip()
+
+
+class HomeBridge(FastMCP):
+    """FastMCP whose tools come from the server's catalogue instead of local functions."""
+
+    def __init__(self, catalog: list[dict], instructions: str):
+        super().__init__(name="HomeHoard", instructions=instructions)
+        self._catalog = catalog
+
+    async def list_tools(self) -> list[MCPTool]:
+        return [MCPTool(name=t["name"], description=t["description"], inputSchema=t["inputSchema"],
+                        annotations=ToolAnnotations(**t.get("annotations", {}))) for t in self._catalog]
+
+    async def call_tool(self, name: str, arguments: dict[str, Any]) -> Sequence[TextContent]:
+        return await self._call(name, arguments, retry=True)
+
+    async def _call(self, name: str, arguments: dict[str, Any], retry: bool) -> Sequence[TextContent]:
+        try:
+            async with httpx.AsyncClient(timeout=120, trust_env=False) as client:
+                response = await client.post(f"{BASE_URL}/api/agent/call", json={"name": name, "arguments": arguments or {}, "caller": "mcp"},
+                                             headers={"Authorization": f"Bearer {_token()}"})
+            body = response.json()
+            if response.status_code >= 400:
+                detail = {k: v for k, v in body.items() if k in ("error", "code", "hint")} if isinstance(body, dict) else {}
+                detail.setdefault("error", f"Error {response.status_code}")
+                return [TextContent(type="text", text=json.dumps(detail, ensure_ascii=False))]
+            return [TextContent(type="text", text=json.dumps(body, ensure_ascii=False))]
+        except (httpx.ConnectError, FileNotFoundError):
+            if retry and ensure_running():
+                return await self._call(name, arguments, retry=False)
+            return [TextContent(type="text", text=json.dumps({"error": NOT_RUNNING}, ensure_ascii=False))]
+        except Exception as error:  # keep the bridge alive on any failure
+            return [TextContent(type="text", text=json.dumps({"error": str(error)}, ensure_ascii=False))]
+
+
+def _healthy() -> bool:
+    for timeout in (4, 8):
+        try:
+            response = httpx.get(f"{BASE_URL}/api/health", timeout=timeout, trust_env=False)
+            if response.status_code == 200 and response.json().get("service") == "homehoard-bridge":
+                return True
+        except httpx.ConnectError:
+            return False
+        except Exception:
+            continue
+    return False
+
+
+def ensure_running(timeout_s: float = 30.0) -> bool:
+    """Start the server detached when it is not answering (unless disabled); True once healthy."""
+    if _healthy():
+        return True
+    if os.environ.get("HOMEHOARD_BRIDGE_AUTOSTART", "1") == "0":
+        return False
+    port = urlparse(BASE_URL).port or 5196
+    env = {**os.environ, "HOMEHOARD_PORT": str(port), "PYTHONUNBUFFERED": "1"}
+    kwargs: dict[str, Any] = {"start_new_session": True}
+    if sys.platform.startswith("win"):
+        kwargs = {"creationflags": getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0) | getattr(subprocess, "CREATE_NO_WINDOW", 0)}
+    logs = DATA_DIR / "logs"
+    logs.mkdir(parents=True, exist_ok=True)
+    with open(logs / "server.log", "ab") as out:
+        subprocess.Popen([sys.executable, str(BRIDGE / "server.py")], cwd=ROOT, env=env, stdin=subprocess.DEVNULL,
+                         stdout=out, stderr=subprocess.STDOUT, close_fds=True, **kwargs)
+    deadline = time.time() + timeout_s
+    while time.time() < deadline:
+        if _healthy():
+            return True
+        time.sleep(0.5)
+    return False
+
+
+def fetch_catalog() -> tuple[list[dict], str]:
+    ensure_running()
+    try:
+        response = httpx.get(f"{BASE_URL}/api/agent/tools", timeout=10, trust_env=False)
+        response.raise_for_status()
+    except Exception as error:
+        raise SystemExit(f"{NOT_RUNNING} ({error})") from error
+    data = response.json()
+    return data["tools"], data.get("instructions", "")
+
+
+def main() -> None:
+    logging.basicConfig(level=logging.WARNING)  # stderr only; stdout belongs to the protocol
+    logging.getLogger("httpx").setLevel(logging.WARNING)
+    _check_local(BASE_URL)
+    catalog, instructions = fetch_catalog()
+    HomeBridge(catalog, instructions).run(transport="stdio")
 
 
 if __name__ == "__main__":
-    mcp.run(transport="stdio")
+    sys.exit(main())

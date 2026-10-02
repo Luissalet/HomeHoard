@@ -1,0 +1,167 @@
+{
+  "verified": "2026-10-02",
+  "advice_source": "Recomendación de mantenimiento habitual; no es una obligación legal.",
+  "templates": [
+    {
+      "id": "caldera-gas",
+      "title": "Revisión de la caldera de gas",
+      "target_kinds": ["item"],
+      "match": ["caldera"],
+      "every_months": 24,
+      "anchor_month": null,
+      "basis": "law",
+      "rule": "RITE IT 3.3",
+      "legal_ref": "RITE (RD 1027/2007), IT 3.3: en una vivienda, la caldera de gas de hasta 70 kW debe revisarla una empresa habilitada al menos cada 2 años.",
+      "maker_note": "Muchos fabricantes piden una revisión anual para mantener la garantía: compruébalo en el manual.",
+      "remind": [30, 7, 0]
+    },
+    {
+      "id": "instalacion-gas",
+      "title": "Inspección periódica de la instalación de gas",
+      "target_kinds": ["home"],
+      "match": ["instalacion de gas", "gas natural", "butano", "propano", "glp", "bombona"],
+      "every_months": 60,
+      "anchor_month": null,
+      "basis": "law",
+      "rule": "RD 919/2006, ITC-ICG 07",
+      "legal_ref": "RD 919/2006, ITC-ICG 07: inspección (gas canalizado) o revisión (butano y propano) periódica cada 5 años. Con gas de red la organiza la distribuidora y te avisa; con butano o propano la contratas tú con un instalador habilitado.",
+      "remind": [30, 7, 0]
+    },
+    {
+      "id": "aire-hasta-12kw",
+      "title": "Mantenimiento del aire acondicionado o bomba de calor (hasta 12 kW)",
+      "target_kinds": ["item"],
+      "match": ["aire acondicionado", "aire", "split", "bomba de calor", "climatizador", "aerotermia"],
+      "every_months": 48,
+      "anchor_month": null,
+      "basis": "law",
+      "rule": "RITE IT 3.3",
+      "legal_ref": "RITE (RD 1027/2007), IT 3.3: en una vivienda, los equipos de aire acondicionado o bomba de calor de 12 kW o menos se revisan cada 4 años.",
+      "remind": [30, 7, 0]
+    },
+    {
+      "id": "aire-12-70kw",
+      "title": "Mantenimiento del aire acondicionado o bomba de calor (de 12 a 70 kW)",
+      "target_kinds": ["item"],
+      "match": ["aire acondicionado", "bomba de calor", "climatizador", "aerotermia"],
+      "every_months": 24,
+      "anchor_month": null,
+      "basis": "law",
+      "rule": "RITE IT 3.3",
+      "legal_ref": "RITE (RD 1027/2007), IT 3.3: en una vivienda, los equipos de más de 12 kW y hasta 70 kW se revisan cada 2 años.",
+      "remind": [30, 7, 0]
+    },
+    {
+      "id": "purgar-radiadores",
+      "title": "Purgar los radiadores",
+      "target_kinds": ["home", "room", "item"],
+      "match": ["radiador", "radiadores", "calefaccion", "caldera"],
+      "every_months": 12,
+      "anchor_month": 10,
+      "basis": "advice",
+      "note": "Una vez al año, en octubre, antes de encender la calefacción.",
+      "remind": [7, 0]
+    },
+    {
+      "id": "filtros-split",
+      "title": "Limpiar los filtros del aire acondicionado",
+      "target_kinds": ["item"],
+      "match": ["aire acondicionado", "aire", "split", "bomba de calor", "climatizador"],
+      "every_months": 3,
+      "anchor_month": null,
+      "basis": "advice",
+      "note": "Cada 3 meses de uso y siempre antes del verano.",
+      "remind": [3, 0]
+    },
+    {
+      "id": "filtro-lavavajillas",
+      "title": "Limpiar el filtro del lavavajillas",
+      "target_kinds": ["item"],
+      "match": ["lavavajillas"],
+      "every_months": 1,
+      "anchor_month": null,
+      "basis": "advice",
+      "note": "Una vez al mes.",
+      "remind": [0]
+    },
+    {
+      "id": "limpieza-lavadora",
+      "title": "Limpiar la lavadora (tambor, filtro y cajetín)",
+      "target_kinds": ["item"],
+      "match": ["lavadora"],
+      "every_months": 1,
+      "anchor_month": null,
+      "basis": "advice",
+      "note": "Una vez al mes: lavado en vacío a alta temperatura, filtro de la bomba y cajetín del detergente.",
+      "remind": [0]
+    },
+    {
+      "id": "descalcificar-cafetera",
+      "title": "Descalcificar la cafetera",
+      "target_kinds": ["item"],
+      "match": ["cafetera"],
+      "every_months": 2,
+      "anchor_month": null,
+      "basis": "advice",
+      "note": "Cada 2 o 3 meses, según la dureza del agua.",
+      "remind": [3, 0]
+    },
+    {
+      "id": "filtro-campana",
+      "title": "Limpiar o cambiar el filtro de la campana",
+      "target_kinds": ["item"],
+      "match": ["campana", "extractor"],
+      "every_months": 3,
+      "anchor_month": null,
+      "basis": "advice",
+      "note": "Cada 3 meses: los metálicos se lavan; los de carbón se cambian.",
+      "remind": [3, 0]
+    },
+    {
+      "id": "pilas-detector-humo",
+      "title": "Cambiar las pilas del detector de humo",
+      "target_kinds": ["item", "room", "home"],
+      "match": ["detector de humo", "detector", "humo"],
+      "every_months": 12,
+      "anchor_month": null,
+      "basis": "advice",
+      "note": "Una vez al año; pulsa el botón de prueba cada mes.",
+      "remind": [7, 0]
+    },
+    {
+      "id": "frigorifico-rejilla",
+      "title": "Limpiar la rejilla y el serpentín del frigorífico",
+      "target_kinds": ["item"],
+      "match": ["frigorifico", "nevera", "frigo", "congelador", "combi"],
+      "every_months": 12,
+      "anchor_month": null,
+      "basis": "advice",
+      "note": "Una vez al año: aspira el polvo de la parte trasera o inferior.",
+      "remind": [7, 0]
+    },
+    {
+      "id": "desagues-sifones",
+      "title": "Limpiar desagües y sifones",
+      "target_kinds": ["room", "home"],
+      "match": ["desague", "sifon", "fregadero", "lavabo", "ducha", "banera"],
+      "room_kinds": ["bathroom", "kitchen"],
+      "every_months": 3,
+      "anchor_month": null,
+      "basis": "advice",
+      "note": "Cada 3 meses, con agua caliente o vinagre y bicarbonato.",
+      "remind": [3, 0]
+    },
+    {
+      "id": "juntas-silicona",
+      "title": "Revisar las juntas de silicona del baño",
+      "target_kinds": ["room"],
+      "match": ["silicona", "ducha", "banera", "bano"],
+      "room_kinds": ["bathroom"],
+      "every_months": 12,
+      "anchor_month": null,
+      "basis": "advice",
+      "note": "Una vez al año: si hay moho o grietas, cámbialas.",
+      "remind": [7, 0]
+    }
+  ]
+}

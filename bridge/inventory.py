@@ -1,4 +1,5 @@
-"""Read-only, local inventory snapshot used by Faustus."""
+"""Inventory search used by Faustus: find an object, list a location. Reads the live home kept by the server
+(``use_store``); without a server store it falls back to the old photo-free snapshot file."""
 from __future__ import annotations
 
 import json
@@ -6,8 +7,16 @@ import os
 import re
 import unicodedata
 from pathlib import Path
+from typing import Any, Optional
 
 SNAPSHOT = Path(os.environ.get("HOMEHOARD_SNAPSHOT") or Path(__file__).resolve().parent.parent / "data" / "faustus-inventory.json")
+_STORE: Any = None
+
+
+def use_store(store: Any) -> None:
+    """Answer from the live home of this server instead of the snapshot file."""
+    global _STORE
+    _STORE = store
 STOP = {"donde", "esta", "estan", "tengo", "guardado", "guardada", "guardados", "guardadas", "puse", "deje", "hay", "el", "la", "los", "las", "un", "una", "mi", "mis", "que", "en", "de", "por", "favor"}
 TABLES = ("households", "homes", "floors", "rooms", "containers", "items", "tags", "itemTags")
 
@@ -37,7 +46,7 @@ def one_edit(a: str, b: str) -> bool:
 
 
 def validate(bundle: object) -> dict:
-    if not isinstance(bundle, dict) or bundle.get("format") != "homehoard-export" or bundle.get("version") not in (1, 2):
+    if not isinstance(bundle, dict) or bundle.get("format") != "homehoard-export" or bundle.get("version") not in (1, 2, 3):
         raise ValueError("El archivo no es una copia de HomeHoard")
     data = bundle.get("data")
     if not isinstance(data, dict) or any(not isinstance(data.get(table), list) for table in TABLES):
@@ -51,6 +60,12 @@ def validate(bundle: object) -> dict:
 
 
 def save(bundle: object) -> dict:
+    """Take an export: merged into the live home (last writer wins) when there is one, else kept as the snapshot."""
+    if _STORE is not None:
+        from homehoard_server.bundle import records_from_bundle
+        records, photos, _ = records_from_bundle(bundle)
+        result = _STORE.merge(records, photos, mode="import", origin="import")
+        return {**status(), "applied": result["applied"], "ignored": result["ignored"], "notes": result["notes"]}
     snapshot = validate(bundle)
     SNAPSHOT.parent.mkdir(parents=True, exist_ok=True)
     pending = SNAPSHOT.with_suffix(".tmp")
@@ -59,7 +74,12 @@ def save(bundle: object) -> dict:
     return status()
 
 
-def load() -> dict | None:
+def load() -> Optional[dict]:
+    if _STORE is not None:
+        if not _STORE.has_data():
+            return None
+        info = _STORE.info()
+        return {"format": "homehoard-live", "exported_at": info["updated_at"], "version": info["version"], "data": _STORE.tables()}
     if not SNAPSHOT.exists():
         return None
     return json.loads(SNAPSHOT.read_text(encoding="utf-8"))
@@ -67,15 +87,17 @@ def load() -> dict | None:
 
 def status() -> dict:
     snapshot = load()
+    live = _STORE is not None
     if snapshot is None:
-        return {"ready": False, "items": 0, "exported_at": None}
-    return {"ready": True, "items": sum(i.get("deleted_at") is None for i in snapshot["data"]["items"]), "exported_at": snapshot.get("exported_at")}
+        return {"ready": False, "items": 0, "exported_at": None, "source": "live" if live else "snapshot"}
+    return {"ready": True, "items": sum(i.get("deleted_at") is None for i in snapshot["data"]["items"]), "exported_at": snapshot.get("exported_at"),
+            "source": "live" if live else "snapshot", **({"version": snapshot.get("version")} if live else {})}
 
 
 def find(query: str, limit: int = 5) -> dict:
     snapshot = load()
     if snapshot is None:
-        return {"status": "no_snapshot", "message": "HomeHoard no tiene una copia local para Faustus. Exporta una copia y cárgala en el puente local.", "matches": []}
+        return {"status": "no_snapshot", "message": "HomeHoard todavía no tiene objetos en este ordenador. Abre HomeHoard en el ordenador o importa una copia del móvil.", "matches": []}
     words = terms(query)
     if not words:
         return {"status": "empty_query", "message": "Indica el nombre del objeto que buscas.", "matches": [], "exported_at": snapshot.get("exported_at")}
@@ -84,6 +106,8 @@ def find(query: str, limit: int = 5) -> dict:
     tags = {row.get("id"): row.get("name", "") for row in data["tags"] if row.get("deleted_at") is None}
     item_tags: dict[str, list[str]] = {}
     for relation in data["itemTags"]:
+        if relation.get("deleted_at") is not None:
+            continue
         tag = tags.get(relation.get("tag_id"))
         if tag:
             item_tags.setdefault(relation.get("item_id"), []).append(tag)
@@ -131,7 +155,7 @@ def find(query: str, limit: int = 5) -> dict:
             matches.append((score, {"id": item.get("id"), "name": item.get("name"), "quantity": item.get("quantity", 1), "location": " › ".join(route), "note": item.get("description") or None, "tags": item_tag_names}))
     matches.sort(key=lambda match: (-match[0], normalized(str(match[1]["name"]))))
     found = [match for _, match in matches[:max(1, min(limit, 20))]]
-    return {"status": "found" if found else "not_found", "query": query, "matches": found, "exported_at": snapshot.get("exported_at"), "message": "Objeto no encontrado en la copia local de HomeHoard." if not found else None}
+    return {"status": "found" if found else "not_found", "query": query, "matches": found, "exported_at": snapshot.get("exported_at"), "message": "Objeto no encontrado en el inventario de HomeHoard." if not found else None}
 
 
 def list_location(location: str, offset: int = 0, limit: int = 50) -> dict:

@@ -1,0 +1,38 @@
+{
+  "comment": "Shared by tests/maintenance.test.mjs and bridge/test_maintenance.py: the app and the server compute the same dates. Days are local; the harness turns them into milliseconds at local noon.",
+  "next_due": [
+    {"task": {"every_months": 24, "last_done": "2025-03-15", "created": "2025-01-01"}, "expected": "2027-03-15"},
+    {"task": {"every_months": 1, "last_done": "2026-01-31", "created": "2025-01-01"}, "expected": "2026-02-28"},
+    {"task": {"every_days": 90, "last_done": "2026-09-01", "created": "2025-01-01"}, "expected": "2026-11-30"},
+    {"task": {"every_months": 12, "anchor_month": 10, "last_done": "2026-10-10", "created": "2025-01-01"}, "expected": "2027-10-01"},
+    {"task": {"every_months": 12, "anchor_month": 10, "last_done": "2026-12-05", "created": "2025-01-01"}, "expected": "2027-10-01"},
+    {"task": {"every_months": 12, "anchor_month": 6, "last_done": "2026-05-20", "created": "2025-01-01"}, "expected": "2027-06-01"},
+    {"task": {"every_months": 12, "anchor_month": 10, "created": "2026-02-14"}, "expected": "2026-10-01"},
+    {"task": {"every_months": 12, "anchor_month": 10, "created": "2026-10-14"}, "expected": "2026-10-14"},
+    {"task": {"every_months": 12, "anchor_month": 10, "created": "2026-11-02"}, "expected": "2027-10-01"},
+    {"task": {"every_months": 3, "created": "2026-10-02"}, "expected": "2026-10-02"},
+    {"task": {"every_months": 3, "last_done": "2026-08-31", "created": "2026-01-01", "next_due": "2027-01-01", "next_due_manual": 1}, "expected": "2027-01-01"},
+    {"task": {"every_months": 3, "last_done": "2026-08-31", "created": "2026-01-01", "next_due": "2027-01-01", "next_due_manual": 0}, "expected": "2026-11-30"}
+  ],
+  "groups": {
+    "today": "2026-10-02",
+    "cases": [["2026-10-01", "overdue"], ["2026-10-02", "month"], ["2026-10-31", "month"], ["2026-11-01", "upcoming"], [null, "none"]]
+  },
+  "intervals": [
+    [{"every_months": 24}, "cada 2 años"],
+    [{"every_months": 3}, "cada 3 meses"],
+    [{"every_months": 1}, "cada mes"],
+    [{"every_days": 1}, "cada día"],
+    [{"every_days": 15}, "cada 15 días"],
+    [{"every_months": 12, "anchor_month": 10}, "cada año, en octubre"]
+  ],
+  "suggest": [
+    {"name": "Caldera Vaillant", "target": "item", "expected": ["caldera-gas", "purgar-radiadores"]},
+    {"name": "Aire acondicionado del salón", "target": "item", "expected": ["aire-hasta-12kw", "aire-12-70kw", "filtros-split"]},
+    {"name": "Lavavajillas Bosch", "target": "item", "expected": ["filtro-lavavajillas"]},
+    {"name": "Lavadora", "target": "item", "expected": ["limpieza-lavadora"]},
+    {"name": "Baño principal", "target": "room", "room_kind": "bathroom", "expected": ["desagues-sifones", "juntas-silicona"]},
+    {"name": "Cocina", "target": "room", "room_kind": "kitchen", "expected": ["desagues-sifones"]},
+    {"name": "Linterna Philips", "target": "item", "expected": []}
+  ]
+}
