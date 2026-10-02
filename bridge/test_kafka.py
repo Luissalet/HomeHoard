@@ -77,6 +77,7 @@ class KafkaLinkTest(unittest.TestCase):
         self.assertTrue(any(t["reason"] == "kafka_outdated" for t in self.mirror.status()["tasks"].values()))
 
     def test_daily_due_event_and_done_event(self):
+        self.mirror.run_once()          # nothing due yet: the day is not used up
         self.call("maintenance_add", template_id="purgar-radiadores", target_kind="home")
         self.call("maintenance_add", template_id="caldera-gas", target="caldera", last_done="2024-12-30")
         self.mirror.run_once()
@@ -95,12 +96,14 @@ class KafkaLinkTest(unittest.TestCase):
         self.assertEqual(done[0]["task_id"], task["id"])
 
     def test_papers_warranty_and_manual_search_go_through_the_hub(self):
-        self.call("home_item_details", item="lavadora", set={"kafka_doc_ids": ["d_manual", "d_invoice"]})
+        self.call("home_item_details", item="lavadora", set={"kafka_doc_ids": ["d_manual", "d_invoice"], "brand": "Marca Demo", "model": "WX-100"})
         papers = self.call("home_item_papers", item="lavadora")
         self.assertEqual({d["id"] for d in papers["documents"]}, {"d_manual", "d_invoice"})
         self.assertEqual(papers["warranty"]["source"], "kafka")
         self.assertEqual(papers["kafka_warranty"]["cite"], "[d_invoice · p. 1]")
         self.assertTrue(papers["kafka_warranty"]["linked"])
+        texts = [a["text"] for t, a in self.kafka.calls if t == "warranty_check"]
+        self.assertEqual(texts, ["Marca Demo WX-100", "WX-100", "Lavadora Demo"], "brand and model first, then the object's name")
         hit = self.call("home_manual_search", item="lavadora", query="error E21")
         self.assertEqual(hit["status"], "found")
         self.assertEqual(hit["searched"], "manuals")

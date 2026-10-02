@@ -218,10 +218,10 @@ class KafkaMirror:
         horizon = (today + timedelta(days=7)).isoformat()
         due = [{"id": t["id"], "title": t.get("title"), "next_due": t.get("next_due")} for t in tasks.values()
                if t.get("deleted_at") is None and not t.get("paused") and t.get("next_due") and t["next_due"] <= horizon]
-        if due:
+        if due:   # the day counts once something was announced; a task added later that day is still announced
             due.sort(key=lambda x: x["next_due"])
             self.emit("homehoard.maintenance.due", {"count": len(due), "tasks": due[:20]})
-        self.state["due_event_day"] = today.isoformat()
+            self.state["due_event_day"] = today.isoformat()
 
     # ---------------------------------------------------------------- status
     def status(self) -> dict[str, Any]:

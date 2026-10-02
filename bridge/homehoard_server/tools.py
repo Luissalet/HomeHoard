@@ -386,22 +386,23 @@ def papers_of(ctx: Ctx, item: dict[str, Any]) -> dict[str, Any]:
             out["missing"] = r["result"].get("missing") or []
         else:
             out["kafka"] = {"ok": False, "reason": r["reason"], "message": r["message"]}
-    needle = " ".join(x for x in (details.get("brand"), details.get("model")) if x) or item.get("name") or ""
-    if out["kafka"]["ok"] and needle:
-        w = ctx.kafka.call("warranty_check", {"text": needle[:120], "include_expired": True})
-        if not w["ok"] and item.get("name") and needle != item["name"]:
-            w = ctx.kafka.call("warranty_check", {"text": item["name"][:120], "include_expired": True})
-        if w["ok"]:
-            rows = w["result"].get("warranties") or []
-            linked = [x for x in rows if (x.get("document") or {}).get("id") in ids]
-            best = (linked or rows)[:1]
-            if best:
-                b = best[0]
-                out["kafka_warranty"] = {"until": b.get("ends"), "active": b.get("active"), "days_left": b.get("days_left"),
-                                         "basis": b.get("basis"), "cite": b.get("cite"), "document": b.get("document"),
-                                         "linked": bool(linked)}
-        elif not w["ok"]:
+    # Kafka's warranty deadlines: by brand and model, by model, then by the object's name; linked papers first
+    needles = list(dict.fromkeys(x.strip()[:120] for x in (" ".join(y for y in (details.get("brand"), details.get("model")) if y),
+                                                           details.get("model") or "", item.get("name") or "") if x and x.strip()))
+    rows: list[dict[str, Any]] = []
+    for needle in needles if out["kafka"]["ok"] else []:
+        w = ctx.kafka.call("warranty_check", {"text": needle, "include_expired": True})
+        if not w["ok"]:
             out["kafka"] = {"ok": False, "reason": w["reason"], "message": w["message"]}
+            break
+        rows = w["result"].get("warranties") or []
+        if rows:
+            break
+    if rows:
+        linked = [x for x in rows if (x.get("document") or {}).get("id") in ids]
+        b = (linked or rows)[0]
+        out["kafka_warranty"] = {"until": b.get("ends"), "active": b.get("active"), "days_left": b.get("days_left"),
+                                 "basis": b.get("basis"), "cite": b.get("cite"), "document": b.get("document"), "linked": bool(linked)}
     if out["warranty"] is None and out.get("kafka_warranty") and out["kafka_warranty"].get("until"):
         kw = out["kafka_warranty"]
         out["warranty"] = {"until": kw["until"], "active": kw["active"], "days_left": kw["days_left"], "source": "kafka"}
