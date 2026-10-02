@@ -41,7 +41,7 @@ import type {
 const TASK_COLS = ['id', 'target_kind', 'target_id', 'title', 'every_days', 'every_months', 'anchor_month', 'last_done_at', 'next_due',
   'next_due_manual', 'notes', 'basis', 'legal_ref', 'template_id', 'kafka_deadline_id', 'paused', 'created_at', 'updated_at', 'deleted_at'] as const;
 const DETAIL_COLS = ['id', 'item_id', 'brand', 'model', 'serial', 'purchase_date', 'store', 'price', 'warranty_until', 'warranty_source',
-  'kafka_doc_ids', 'manual_url', 'consumables', 'notes', 'created_at', 'updated_at', 'deleted_at'] as const;
+  'kafka_doc_ids', 'manual_url', 'consumables', 'notes', 'source_ref', 'warranty_ref', 'created_at', 'updated_at', 'deleted_at'] as const;
 const LOG_COLS = ['id', 'task_id', 'done_at', 'note', 'cost', 'who', 'created_at', 'updated_at', 'deleted_at'] as const;
 
 type Row = Record<string, unknown>;
@@ -694,7 +694,7 @@ export class SqliteSource implements DataSource {
     const current = detailsRow(await this.d.getFirstAsync<Row>('SELECT * FROM item_details WHERE id = ?', [itemId]));
     const row: ItemDetails = {
       id: itemId, item_id: itemId, brand: null, model: null, serial: null, purchase_date: null, store: null, price: null, warranty_until: null,
-      warranty_source: null, kafka_doc_ids: [], manual_url: null, consumables: [], notes: null, created_at: t, ...(current ?? {}),
+      warranty_source: null, kafka_doc_ids: [], manual_url: null, consumables: [], notes: null, source_ref: null, warranty_ref: null, created_at: t, ...(current ?? {}),
       ...cleanDetails(patch), updated_at: Math.max(t, (current?.updated_at ?? 0) + 1), deleted_at: null,
     };
     if (patch.warranty_until !== undefined && patch.warranty_source === undefined) row.warranty_source = row.warranty_until ? 'manual' : null;

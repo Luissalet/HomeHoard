@@ -35,6 +35,10 @@ class Paths:
         return self.data / "settings.json"
 
     @property
+    def announced(self) -> Path:
+        return self.data / "announced.json"
+
+    @property
     def mirror(self) -> Path:
         return self.data / "kafka-mirror.json"
 

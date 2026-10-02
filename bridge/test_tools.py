@@ -20,7 +20,7 @@ class ToolsTest(unittest.TestCase):
         names = [t["name"] for t in T.catalog()]
         for old in ("home_find_item", "home_inventory_status", "home_list_location"):
             self.assertIn(old, names)
-        self.assertEqual(len(names), 15)
+        self.assertEqual(len(names), 16)
         for t in T.catalog():
             first = t["description"].splitlines()[0]
             self.assertLessEqual(len(first), 110, t["name"])

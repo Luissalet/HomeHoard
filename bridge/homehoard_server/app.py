@@ -20,7 +20,8 @@ import inventory
 from . import APP_ID, SERVICE, VERSION
 from . import config as C
 from . import tools as T
-from .family_link import IMPORT_ERROR, family
+from . import agenda as AG
+from .family_link import IMPORT_ERROR, agenda_answer, family, refs_link
 from .kafka import KafkaLink, KafkaMirror
 from .pages import IMPORT_PAGE, NO_WEB_PAGE
 from .store import HomeStore, _atomic_write
@@ -85,7 +86,9 @@ class App:
         self.kafka = KafkaLink(kafka_call)
         self.mirror = KafkaMirror(self.store, self.kafka, paths=self.paths, settings=self.settings, app_url=f"http://127.0.0.1:{self.port}",
                                   clock=clock, emit=self.emit) if mirror else None
-        self.ctx = T.Ctx(self.store, self.kafka, self.mirror, clock, self.emit)
+        self.ctx = T.Ctx(self.store, self.kafka, self.mirror, clock, self.emit, app_url=f"http://127.0.0.1:{self.port}")
+        self.lock_announced = threading.Lock()
+        self.ctx.announced = self._mark_announced
         self.token = self._token()
         self.store.listeners.append(self._changed)
         self._kafka_probe: tuple[float, dict[str, Any]] = (0.0, {})
@@ -124,8 +127,40 @@ class App:
             self.mirror.wake()
         return current
 
+    def _announced(self) -> set[str]:
+        try:
+            return set(json.loads(self.paths.announced.read_text(encoding="utf-8")))
+        except (OSError, ValueError):
+            return set()
+
+    def _mark_announced(self, item_id: str, ref: str) -> None:
+        """The creation of this object was announced (by the tool or by the sync): never announce it twice."""
+        with self.lock_announced:
+            sent = self._announced()
+            if f"{item_id}|{ref}" not in sent:
+                sent.add(f"{item_id}|{ref}")
+                _atomic_write(self.paths.announced, json.dumps(sorted(sent)))
+
+    def _announce_purchases(self, ids: list[str]) -> None:
+        """An object the web form filed from a purchase (its card carries ``source_ref``) is announced once, like the tool does:
+        ``homehoard.item.created`` and the link in the hub's graph."""
+        sent = self._announced()
+        for item_id in ids:
+            card = self.store.get("item_details", item_id)
+            item = self.store.get("items", item_id)
+            ref = (card or {}).get("source_ref")
+            if not card or card.get("deleted_at") is not None or not item or item.get("deleted_at") is not None or not ref:
+                continue
+            if f"{item_id}|{ref}" in sent:
+                continue
+            self._mark_announced(item_id, ref)
+            self.emit("homehoard.item.created", {"item_id": item_id, "source_ref": ref})
+            self.ctx.spawn(lambda i=item_id, r=ref, n=item.get("name") or "": (self.ctx.refs or refs_link)(f"hoard://homehoard/item/{i}", r, "from_purchase", from_label=n))
+
     def _changed(self, event: dict[str, Any]) -> None:
         changed = event.get("changed") or {}
+        if event.get("origin") == "app" and changed.get("item_details"):
+            self._announce_purchases(changed["item_details"])
         if self.mirror and ("maintenance_tasks" in changed or "items" in changed or "rooms" in changed):
             self.mirror.wake()
         for log_id in changed.get("maintenance_log", []):
@@ -289,6 +324,13 @@ def make_handler(app: App) -> type[BaseHTTPRequestHandler]:
                     self._json(200, app.store.client_state())
                 elif path == "/api/home/version":
                     self._json(200, app.store.info())
+                elif path == "/api/family/agenda":
+                    if not self._bearer_ok():
+                        self._json(401, {"error": "Token no válido", "hint": "Usa el token de data/mcp-token."})
+                        return
+                    q = parse_qs(url.query)
+                    one = lambda key: (q.get(key) or [""])[0]  # noqa: E731
+                    self._json(200, agenda_answer(AG.make_provider(lambda: app.ctx), one("from") or None, one("to") or None, one("sphere")))
                 elif path == "/api/agent/tools":
                     self._json(200, {"app": APP_ID, "tools": T.catalog(), "instructions": T.INSTRUCTIONS})
                 elif path == "/api/settings":

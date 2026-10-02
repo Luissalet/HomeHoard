@@ -3,8 +3,9 @@
 * :class:`KafkaLink` calls Kafka's tools with ``family.call`` and says plainly why it could not (hub down, Kafka down,
   Kafka too old for a tool).
 * :class:`KafkaMirror` keeps one Kafka deadline per active maintenance task (``source="homehoard"``, the task id as the
-  external key), retries while Kafka is unreachable, closes the deadline when a task is deleted, and sends the daily
-  ``homehoard.maintenance.due`` event."""
+  external key), retries while Kafka is unreachable, closes the deadline when a task is deleted, and tells the family bus
+  about maintenance: ``homehoard.maintenance.due`` when a task becomes due and, once a day, ``homehoard.maintenance.upcoming``
+  with the tasks due within 7 days."""
 from __future__ import annotations
 
 import hashlib
@@ -19,6 +20,7 @@ from . import maintenance as MT
 from .family_link import family
 
 SOURCE = "homehoard"
+DUE_GRACE_DAYS = 2     # a task that became due up to this many days ago is still announced (the app may have been off); older ones are not
 REASON_TEXT = {
     "hub_down": "El Hoard Hub no responde: abre el Hub para hablar con Kafka.",
     "app_down": "Kafka's Hoard no responde: ábrelo para ver tus papeles.",
@@ -207,6 +209,7 @@ class KafkaMirror:
             for tid in [t for t in self.state["tasks"] if t not in tasks]:
                 self.state["tasks"].pop(tid, None)
             self.state.update(last_run=self.clock(), enabled=enabled)
+            self._due_events(tasks)
             self._daily_due_event(tasks)
             _save_json(self.paths.mirror, self.state)
             return {"sent": sent, "closed": closed, "failed": failed, "enabled": enabled}
@@ -220,8 +223,29 @@ class KafkaMirror:
                if t.get("deleted_at") is None and not t.get("paused") and t.get("next_due") and t["next_due"] <= horizon]
         if due:   # the day counts once something was announced; a task added later that day is still announced
             due.sort(key=lambda x: x["next_due"])
-            self.emit("homehoard.maintenance.due", {"count": len(due), "tasks": due[:20]})
+            self.emit("homehoard.maintenance.upcoming", {"count": len(due), "tasks": due[:20]})
             self.state["due_event_day"] = today.isoformat()
+
+    def _due_events(self, tasks: dict[str, dict[str, Any]]) -> None:
+        """``homehoard.maintenance.due {task_id, title, due, url, item_id}`` once for each task when it becomes due (its day is today, or
+        up to ``DUE_GRACE_DAYS`` ago); a task whose date moves is announced again for the new date."""
+        today = self.today()
+        sent: dict[str, str] = self.state.setdefault("due_sent", {})
+        for tid, task in tasks.items():
+            day = MT.parse_day(task.get("next_due"))
+            if task.get("deleted_at") is not None or task.get("paused") or day is None:
+                continue
+            late = (today - day).days
+            if not 0 <= late <= DUE_GRACE_DAYS or sent.get(tid) == day.isoformat():
+                continue
+            name = target_name(self.store, task)
+            title = (task.get("title") or "tarea") + (f" ({name})" if name else "")
+            self.emit("homehoard.maintenance.due", {"task_id": tid, "title": title, "due": day.isoformat(),
+                                                    "url": f"{self.app_url}/maintenance?task={tid}" if self.app_url else "",
+                                                    "item_id": task.get("target_id") if task.get("target_kind") == "item" else ""})
+            sent[tid] = day.isoformat()
+        for tid in [t for t in sent if t not in tasks]:
+            sent.pop(tid, None)
 
     # ---------------------------------------------------------------- status
     def status(self) -> dict[str, Any]:

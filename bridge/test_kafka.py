@@ -76,24 +76,54 @@ class KafkaLinkTest(unittest.TestCase):
         self.assertEqual([c[0] for c in self.kafka.calls], ["deadline_add", "deadline_delete"], "one try, undone, then it stops")
         self.assertTrue(any(t["reason"] == "kafka_outdated" for t in self.mirror.status()["tasks"].values()))
 
-    def test_daily_due_event_and_done_event(self):
+    def test_daily_summary_and_done_event(self):
         self.mirror.run_once()          # nothing due yet: the day is not used up
         self.call("maintenance_add", template_id="purgar-radiadores", target_kind="home")
         self.call("maintenance_add", template_id="caldera-gas", target="caldera", last_done="2024-12-30")
         self.mirror.run_once()
-        due = [d for t, d in self.events if t == "homehoard.maintenance.due"]
-        self.assertEqual(len(due), 1)
-        self.assertEqual([x["title"] for x in due[0]["tasks"]], ["Purgar los radiadores"])
+        up = [d for t, d in self.events if t == "homehoard.maintenance.upcoming"]
+        self.assertEqual(len(up), 1)
+        self.assertEqual([x["title"] for x in up[0]["tasks"]], ["Purgar los radiadores"])
         self.mirror.run_once()
-        self.assertEqual(len([1 for t, _ in self.events if t == "homehoard.maintenance.due"]), 1, "once a day")
+        self.assertEqual(len([1 for t, _ in self.events if t == "homehoard.maintenance.upcoming"]), 1, "once a day")
         self.clock.advance(86400)
         self.mirror.run_once()
-        self.assertEqual(len([1 for t, _ in self.events if t == "homehoard.maintenance.due"]), 2)
+        self.assertEqual(len([1 for t, _ in self.events if t == "homehoard.maintenance.upcoming"]), 2)
         task = self.app.store.alive("maintenance_tasks")[0]
         # the app marks it done: the log record arrives through the sync
         self.app.store.merge({"maintenance_log": [rec("log1", "", 5_000, task_id=task["id"], done_at=5_000, note=None)]})
         done = [d for t, d in self.events if t == "homehoard.maintenance.done"]
         self.assertEqual(done[0]["task_id"], task["id"])
+
+    def test_each_task_announces_when_it_becomes_due_once_per_date(self):
+        task = self.call("maintenance_add", template_id="caldera-gas", target="caldera", last_done="2024-10-02")["task"]
+        self.assertEqual(task["next_due"], "2026-10-02")
+        self.mirror.run_once()
+        due = [d for t, d in self.events if t == "homehoard.maintenance.due"]
+        self.assertEqual(len(due), 1)
+        self.assertEqual((due[0]["task_id"], due[0]["due"], due[0]["item_id"]), (task["id"], "2026-10-02", "boiler"))
+        self.assertIn("Caldera de gas", due[0]["title"])
+        self.assertTrue(due[0]["url"].endswith(f"/maintenance?task={task['id']}"))
+        self.mirror.run_once()
+        self.assertEqual(len([1 for t, _ in self.events if t == "homehoard.maintenance.due"]), 1, "once per date")
+        self.clock.advance(86400)
+        self.mirror.run_once()
+        self.assertEqual(len([1 for t, _ in self.events if t == "homehoard.maintenance.due"]), 1, "late days do not repeat it")
+        self.call("maintenance_done", task=task["id"], done_at="2026-10-03")
+        self.clock.advance(86400 * 731)       # two years later it falls due again
+        self.mirror.run_once()
+        again = [d for t, d in self.events if t == "homehoard.maintenance.due"]
+        self.assertEqual(len(again), 2)
+        self.assertNotEqual(again[1]["due"], again[0]["due"])
+
+    def test_due_events_skip_paused_deleted_and_old_tasks(self):
+        old = self.call("maintenance_add", template_id="caldera-gas", target="caldera", last_done="2020-01-01")["task"]
+        self.assertTrue(old["next_due"] < "2026-09-29")
+        self.call("maintenance_add", template_id="purgar-radiadores", target_kind="home")   # due today
+        self.mirror.run_once()
+        titles = [d["title"] for t, d in self.events if t == "homehoard.maintenance.due"]
+        self.assertEqual(len(titles), 1)
+        self.assertIn("radiadores", titles[0])
 
     def test_papers_warranty_and_manual_search_go_through_the_hub(self):
         self.call("home_item_details", item="lavadora", set={"kafka_doc_ids": ["d_manual", "d_invoice"], "brand": "Marca Demo", "model": "WX-100"})

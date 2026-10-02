@@ -2,6 +2,8 @@
 MCP bridge. Writes go through the same merge as the app and return the new state."""
 from __future__ import annotations
 
+import re
+import threading
 import uuid
 from dataclasses import dataclass
 from datetime import date, datetime
@@ -11,10 +13,12 @@ import inventory
 
 from . import maintenance as MT
 from .bundle import link_id
+from .family_link import refs_link
 from .kafka import KafkaLink, KafkaMirror
 
 INSTRUCTIONS = """HomeHoard keeps the user's home on this computer: homes, floors, rooms, furniture (containers nested inside each other), objects with tags, an appliance card per object (brand, model, serial, purchase, warranty, spare parts, linked papers in Kafka's Hoard) and maintenance tasks with their legal basis or advice.
 To answer «¿dónde está…?» use home_find_item; «¿qué hay en…?» home_list_location. Quote locations only from tool results; if an object is not found, say so. Write tools (home_add_item, home_update_item, home_move_item, home_item_details with set, maintenance_*) only when the user asks; deletes need confirm=true.
+Purchases: item_add_from_purchase files a bought thing (name, price, shop, date, warranty paper, where it came from) in a room or furniture, or in the «Por colocar» room when the place is not known. It is idempotent by source_ref and name.
 Maintenance: maintenance_list (overdue, this month, upcoming), maintenance_done, maintenance_add (from maintenance_templates or custom). Legal tasks carry their norm (RITE, RD 919/2006); the rest are advice and must be presented as such. Papers, warranties and manuals live in Kafka's Hoard: home_item_papers and home_manual_search reach it through the hub and say when it is not available."""
 
 
@@ -34,6 +38,24 @@ class Ctx:
     mirror: Optional[KafkaMirror]
     clock: Callable[[], float]
     emit: Callable[..., Any]
+    app_url: str = ""
+    refs: Optional[Callable[..., Any]] = None                           # tell the hub two records are the same thing (default: the family library)
+    background: Optional[Callable[[Callable[[], Any]], None]] = None    # run a fire-and-forget hint (default: a daemon thread)
+    announced: Optional[Callable[[str, str], None]] = None              # note that an object's creation was announced (the sync does not repeat it)
+
+    def spawn(self, fn: Callable[[], Any]) -> None:
+        def safe() -> None:
+            try:
+                fn()
+            except Exception:  # noqa: BLE001 - hints to the hub; the home is the truth
+                pass
+        if self.background is not None:
+            self.background(safe)
+        else:
+            threading.Thread(target=safe, name="homehoard-hint", daemon=True).start()
+
+    def item_url(self, item_id: str) -> str:
+        return f"{self.app_url.rstrip('/')}/item/{item_id}"
 
     def today(self) -> date:
         return datetime.fromtimestamp(self.clock()).date()
@@ -270,6 +292,7 @@ def t_add_item(ctx: Ctx, a: dict[str, Any]) -> dict[str, Any]:
     if a.get("tags"):
         _set_tags(ctx, item["id"], list(_arg(a, "tags", list, [])))
     ctx.emit("homehoard.item.added", {"id": item["id"], "title": name})
+    ctx.emit("homehoard.item.created", {"item_id": item["id"], "source_ref": ""})
     return {"status": "added", "item": _item_out(ctx, ctx.store.get("items", item["id"]))}
 
 
@@ -308,7 +331,7 @@ def t_move_item(ctx: Ctx, a: dict[str, Any]) -> dict[str, Any]:
 
 
 # ====================================================================== appliance card
-DETAIL_TEXT = ("brand", "model", "serial", "store", "manual_url", "notes")
+DETAIL_TEXT = ("brand", "model", "serial", "store", "manual_url", "notes", "source_ref", "warranty_ref")
 DETAIL_FIELDS = DETAIL_TEXT + ("purchase_date", "price", "warranty_until", "warranty_source", "kafka_doc_ids", "consumables")
 
 
@@ -342,13 +365,30 @@ def _clean_consumables(value: Any) -> list[dict[str, Any]]:
     return out
 
 
+REF = re.compile(r"^hoard://[a-z0-9._-]{1,40}/[a-z0-9._-]{1,40}/[A-Za-z0-9._:~-]{1,160}$")
+KAFKA_DOC_REF = re.compile(r"^hoard://kafka/document/([A-Za-z0-9._:~-]{1,160})$")
+INBOX_ROOM = "Por colocar"
+
+
+def _ref_value(key: str, value: Any) -> Optional[str]:
+    """A ``hoard://<app>/<kind>/<id>`` reference, or None to clear it."""
+    if value in (None, ""):
+        return None
+    text = str(value).strip()
+    if not REF.match(text):
+        raise ToolError("invalid", f"{key} debe ser una referencia hoard://app/tipo/id.", "Ejemplo: hoard://hub/purchase/12")
+    return text
+
+
 def save_details(ctx: Ctx, item_id: str, values: dict[str, Any]) -> dict[str, Any]:
     current = ctx.store.get("item_details", item_id) or {"id": item_id, "item_id": item_id, "created_at": ctx.now_ms()}
     rec = {**current, "deleted_at": None}
     for key, value in values.items():
         if key not in DETAIL_FIELDS:
             raise ToolError("invalid", f"Campo desconocido en la ficha: {key}.", "Campos: " + ", ".join(DETAIL_FIELDS))
-        if key in DETAIL_TEXT:
+        if key in ("source_ref", "warranty_ref"):
+            rec[key] = _ref_value(key, value)
+        elif key in DETAIL_TEXT:
             rec[key] = (str(value).strip()[:500] if value not in (None, "") else None)
         elif key in ("purchase_date", "warranty_until"):
             rec[key] = _day_arg({key: value}, key)
@@ -666,12 +706,102 @@ def t_maint_templates(ctx: Ctx, a: dict[str, Any]) -> dict[str, Any]:
             "note": "Solo las plantillas con basis law son obligaciones legales; el resto son recomendaciones."}
 
 
+# ====================================================================== purchases
+def _inbox_room(ctx: Ctx) -> str:
+    """The «Por colocar» room: where a bought thing waits until the user decides its place. Made on first use, to the right of the
+    other rooms of the first floor of the first home."""
+    rooms = ctx.store.alive("rooms")
+    found = next((r for r in rooms if MT.fold(r.get("name")) == MT.fold(INBOX_ROOM)), None)
+    if found:
+        return found["id"]
+    homes = sorted(ctx.store.alive("homes"), key=lambda r: r.get("created_at") or 0)
+    floors = [f for f in ctx.store.alive("floors") if homes and f.get("home_id") == homes[0]["id"]]
+    if not floors:
+        raise ToolError("no_home", "HomeHoard no tiene todavía ninguna vivienda con planta.",
+                        "Crea la vivienda en la app, o indica room con el nombre de una habitación existente.")
+    floor = sorted(floors, key=lambda f: (f.get("level_index") or 0, f.get("created_at") or 0))[0]
+    right = max([int((r.get("x_cm") or 0) + (r.get("width_cm") or 0)) for r in rooms if r.get("floor_id") == floor["id"]] or [-50])
+    room = ctx.store.put("rooms", {"id": str(uuid.uuid4()), "floor_id": floor["id"], "name": INBOX_ROOM, "kind": None, "color": None, "shape": "rect",
+                                   "x_cm": right + 50, "y_cm": 0, "width_cm": 200, "height_cm": 150, "rotation": 0, "points_json": None,
+                                   "created_at": ctx.now_ms()})
+    return room["id"]
+
+
+def _purchase_place(ctx: Ctx, room: str, place: str) -> tuple[dict[str, Any], str, str]:
+    """``({room_id, container_id}, how, warning)``: the place asked for, or the «Por colocar» room when none was given or it does not
+    resolve (a purchase is never lost because a room name did not match)."""
+    ref = f"{room} › {place}" if room and place else (place or room)
+    warning = ""
+    if ref:
+        try:
+            return _place(_resolve_location(ctx, ref)), "given", ""
+        except ToolError as exc:
+            if exc.code not in ("not_found", "ambiguous"):
+                raise
+            warning = f"{exc.message} {exc.hint}".strip()
+    return {"room_id": _inbox_room(ctx), "container_id": None}, "inbox", warning
+
+
+def _purchase_existing(ctx: Ctx, source_ref: str, name: str) -> Optional[dict[str, Any]]:
+    """The object already filed for this purchase and name (the same event may arrive twice)."""
+    folded = MT.fold(name)
+    items = {i["id"]: i for i in ctx.store.alive("items")}
+    for d in ctx.store.alive("item_details"):
+        item = items.get(d.get("item_id") or d.get("id"))
+        if item and d.get("source_ref") == source_ref and MT.fold(item.get("name")) == folded:
+            return item
+    return None
+
+
+def t_item_add_from_purchase(ctx: Ctx, a: dict[str, Any]) -> dict[str, Any]:
+    name = _arg(a, "name", str, required=True)[:160]
+    source_ref = _ref_value("source_ref", a.get("source_ref"))
+    warranty_ref = _ref_value("warranty_ref", a.get("warranty_ref"))
+    merchant = _arg(a, "merchant", str, "")[:120]
+    price = a.get("price")
+    if price in (None, ""):
+        price = None
+    else:
+        try:
+            price = float(str(price).replace(",", ".")) if not isinstance(price, (int, float)) or isinstance(price, bool) else float(price)
+        except ValueError as exc:
+            raise ToolError("invalid", "price debe ser un número.") from exc
+        if price < 0:
+            raise ToolError("invalid", "price no puede ser negativo.")
+    when = _day_arg({"date": str(a["date"]).strip()[:10]}, "date") if a.get("date") not in (None, "") else None
+    if source_ref:
+        found = _purchase_existing(ctx, source_ref, name)
+        if found:
+            return {"ok": True, "status": "existing", "item_id": found["id"], "url": ctx.item_url(found["id"]), "item": _item_out(ctx, found)}
+    place, how, warning = _purchase_place(ctx, _arg(a, "room", str, ""), _arg(a, "place", str, ""))
+    item = ctx.store.put("items", {"id": str(uuid.uuid4()), "household_id": _household(ctx), "name": name, "description": None, "quantity": 1, **place,
+                                   "photo_uri": None, "favorite": 0, "created_at": ctx.now_ms()})
+    card: dict[str, Any] = {"store": merchant or None, "price": price, "purchase_date": when, "source_ref": source_ref, "warranty_ref": warranty_ref}
+    doc = KAFKA_DOC_REF.match(warranty_ref or "")
+    if doc:
+        card["kafka_doc_ids"] = [doc.group(1)]
+    if any(v is not None for v in card.values()):
+        save_details(ctx, item["id"], {k: v for k, v in card.items() if v is not None})
+    ctx.emit("homehoard.item.created", {"item_id": item["id"], "source_ref": source_ref or ""})
+    if source_ref:
+        if ctx.announced:
+            ctx.announced(item["id"], source_ref)
+        link = ctx.refs or refs_link
+        ctx.spawn(lambda: link(f"hoard://homehoard/item/{item['id']}", source_ref, "from_purchase", from_label=name))
+    out = {"ok": True, "status": "created", "item_id": item["id"], "url": ctx.item_url(item["id"]),
+           "item": _item_out(ctx, ctx.store.get("items", item["id"])), "placed": how}
+    if warning:
+        out["warning"] = warning
+    return out
+
+
 # ====================================================================== catalogue
 ITEM = S("Object: its id or its name (a unique match).")
 LOCATION = S("Room, piece of furniture or box: id, name or full path (e.g. «Dormitorio › Armario › Cajón rojo»).")
 TASK = S("Maintenance task: its id, or words of its title and target (a unique match).")
 DETAILS_SET = {"type": "object", "description": "Fields to save (only these change): brand, model, serial, purchase_date (YYYY-MM-DD), store, "
                "price, warranty_until (YYYY-MM-DD), warranty_source (manual|kafka), kafka_doc_ids (list, replaces), manual_url, notes, "
+               "source_ref and warranty_ref (hoard://app/kind/id references), "
                "consumables (list of {name, spec, qty, last_bought}; replaces).", "additionalProperties": True}
 
 TOOLS: list[Tool] = [
@@ -692,6 +822,14 @@ TOOLS: list[Tool] = [
          _obj({"name": S("Object name."), "location": LOCATION, "quantity": I("Units (default 1).", minimum=0), "note": S("Free text."),
                "tags": {"type": "array", "items": {"type": "string"}, "description": "Tag names; new ones are created."}, "favorite": B("Mark as favorite.")},
               ("name", "location")), False, t_add_item),
+    Tool("item_add_from_purchase", _d("File something that was bought: name, price, shop, date, warranty paper, origin. Registrar una compra.",
+                                      "Called by the other Hoards when a purchase arrives. Without room/place it goes to the «Por colocar» room; a place that "
+                                      "does not resolve does too (see warning). Idempotent by source_ref and name. Returns the object id and its link.",
+                                      "he comprado, guarda lo que compré, alta desde la compra, añade a casa lo que llegó"),
+         _obj({"name": S("What was bought."), "source_ref": S("Where it comes from: hoard://app/kind/id (e.g. hoard://hub/purchase/12)."),
+               "price": N("Price paid.", minimum=0), "merchant": S("Shop."), "date": S("Purchase date " + DATE + "."),
+               "room": S("Room (id, name or path)."), "place": S("Furniture or box in that room (name or path)."),
+               "warranty_ref": S("The warranty paper: hoard://kafka/document/<id>.")}, ("name",)), False, t_item_add_from_purchase),
     Tool("home_update_item", _d("Change an object: name, quantity, note, place, tags, favorite. Editar un objeto del inventario.",
                                 "Only the fields given change; tags replace the object's tags. Returns the new state.",
                                 "cambia el nombre, ahora tengo 3, quita la etiqueta, marca como favorito"),

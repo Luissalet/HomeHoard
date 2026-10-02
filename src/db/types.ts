@@ -131,6 +131,8 @@ export interface ItemDetails {
   manual_url: string | null;
   consumables: Consumable[];
   notes: string | null;
+  source_ref: string | null; // hoard://app/tipo/id: la compra u otro registro de donde viene el objeto
+  warranty_ref: string | null; // hoard://kafka/document/<id>: el papel de la garantía
   created_at: Millis;
   updated_at: Millis;
   deleted_at: Millis | null;

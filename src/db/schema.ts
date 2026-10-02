@@ -73,7 +73,7 @@ CREATE TABLE IF NOT EXISTS item_details (
   id TEXT PRIMARY KEY, item_id TEXT NOT NULL,
   brand TEXT, model TEXT, serial TEXT, purchase_date TEXT, store TEXT, price REAL,
   warranty_until TEXT, warranty_source TEXT, kafka_doc_ids TEXT NOT NULL DEFAULT '[]', manual_url TEXT,
-  consumables TEXT NOT NULL DEFAULT '[]', notes TEXT,
+  consumables TEXT NOT NULL DEFAULT '[]', notes TEXT, source_ref TEXT, warranty_ref TEXT,
   created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, deleted_at INTEGER
 );
 
@@ -116,5 +116,8 @@ export const MIGRATIONS: string[] = [
   `ALTER TABLE item_tag ADD COLUMN updated_at INTEGER`,
   `ALTER TABLE item_tag ADD COLUMN deleted_at INTEGER`,
   `UPDATE item_tag SET id = item_id || ':' || tag_id WHERE id IS NULL`,
+  // 0.4: de dónde viene el objeto (hoard://app/tipo/id) y el papel de su garantía, para los objetos dados de alta desde una compra.
+  `ALTER TABLE item_details ADD COLUMN source_ref TEXT`,
+  `ALTER TABLE item_details ADD COLUMN warranty_ref TEXT`,
   `UPDATE item_tag SET updated_at = COALESCE((SELECT updated_at FROM item WHERE item.id = item_tag.item_id), 0) WHERE updated_at IS NULL`,
 ];

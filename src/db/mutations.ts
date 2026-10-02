@@ -7,14 +7,14 @@ export function emptyDetails(itemId: ID): ItemDetails {
   return {
     id: itemId, item_id: itemId, brand: null, model: null, serial: null, purchase_date: null, store: null, price: null,
     warranty_until: null, warranty_source: null, kafka_doc_ids: [], manual_url: null, consumables: [], notes: null,
-    created_at: 0, updated_at: 0, deleted_at: null,
+    source_ref: null, warranty_ref: null, created_at: 0, updated_at: 0, deleted_at: null,
   };
 }
 
 /** Solo los campos de la ficha, con textos recortados y vacíos como null. */
 export function cleanDetails(patch: ItemDetailsInput): ItemDetailsInput {
   const out: ItemDetailsInput = {};
-  for (const key of ['brand', 'model', 'serial', 'store', 'manual_url', 'notes', 'purchase_date', 'warranty_until'] as const) {
+  for (const key of ['brand', 'model', 'serial', 'store', 'manual_url', 'notes', 'purchase_date', 'warranty_until', 'source_ref', 'warranty_ref'] as const) {
     if (patch[key] !== undefined) out[key] = patch[key] ? String(patch[key]).trim() || null : null;
   }
   if (patch.price !== undefined) out.price = patch.price == null || Number.isNaN(Number(patch.price)) ? null : Number(patch.price);

@@ -34,3 +34,24 @@ class _Missing:
 
 
 family: Any = _family if _family is not None else _Missing()
+
+try:
+    from .hoard_link import fam_agenda as _fam_agenda  # noqa: F401
+    from .hoard_link import fam_refs as _fam_refs  # noqa: F401
+except Exception:  # noqa: BLE001
+    _fam_agenda = None
+    _fam_refs = None
+
+
+def refs_link(from_uri: str, to_uri: str, rel: str = "related", *, from_label: str = "", to_label: str = "") -> dict[str, Any]:
+    """Tell the hub two records are the same thing (``hoard://`` references). A hint: the hub may be away, the library missing."""
+    if _fam_refs is None:
+        return {"ok": False, "error": "hoard_link_unavailable"}
+    return _fam_refs.link(from_uri, to_uri, rel, from_label=from_label, to_label=to_label)
+
+
+def agenda_answer(provider: Any, date_from: Any = None, date_to: Any = None, sphere: str = "") -> dict[str, Any]:
+    """The body of ``GET /api/family/agenda`` for a synchronous provider; never raises."""
+    if _fam_agenda is None:
+        return {"ok": False, "error": "hoard_link_unavailable", "items": []}
+    return _fam_agenda.answer(provider, date_from, date_to, sphere)

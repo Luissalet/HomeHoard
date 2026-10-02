@@ -43,11 +43,12 @@ Funciona sin cuenta ni servicios externos. **El ordenador guarda la casa**: el s
 
 `bridge/mcp_server.py` es el puente MCP por stdio: reenvía cada llamada al servidor con el token de `data/mcp-token` y lo arranca si no responde (`HOMEHOARD_BRIDGE_AUTOSTART=0` lo evita). El servidor también responde al contrato de la familia (`GET /api/agent/tools`, `POST /api/agent/call` con `Authorization: Bearer <token>`), emite eventos al bus del Hub y registra cada llamada.
 
-Herramientas (15):
+Herramientas (16):
 
 - `home_find_item` — «¿dónde está la linterna?»: busca por nombre, etiqueta, nota o ubicación, con erratas, y devuelve la ruta completa. Si no está, lo dice.
 - `home_list_location` — «¿qué hay en la caja roja?»: todo lo de una habitación, mueble o caja, anidado incluido, paginado; si el nombre es ambiguo pide la ruta o el id.
 - `home_inventory_status` — si el ordenador tiene la casa, cuántos objetos, último cambio y tareas vencidas.
+- `item_add_from_purchase` — registra algo que se ha comprado (nombre, precio, tienda, fecha, papel de garantía, origen) y lo coloca; sin sitio va a la habitación «Por colocar».
 - `home_add_item`, `home_update_item`, `home_move_item` — «guarda la linterna en el cajón rojo»: alta, cambios (nombre, cantidad, nota, sitio, etiquetas, favorito) y mover. Devuelven el estado nuevo.
 - `home_item_details` — leer o rellenar la ficha (`set`).
 - `home_item_papers` — «¿está en garantía la lavadora?»: papeles vinculados en Kafka y la garantía con su base y cita.
@@ -55,7 +56,13 @@ Herramientas (15):
 - `maintenance_list` — «¿cuándo toca revisar la caldera?»: vencidas, este mes, próximas, por objeto o habitación.
 - `maintenance_add`, `maintenance_done`, `maintenance_update`, `maintenance_delete` (`confirm=true`), `maintenance_templates`.
 
-Eventos: `homehoard.item.added`, `homehoard.maintenance.done` y, una vez al día, `homehoard.maintenance.due` con las tareas de los próximos 7 días.
+Eventos: `homehoard.item.created {item_id, source_ref}` (cada objeto nuevo; `home_add_item` sigue emitiendo `homehoard.item.added`), `homehoard.maintenance.done`, `homehoard.maintenance.due {task_id, title, due, url, item_id}` una vez por tarea cuando vence (su día, o hasta 2 días después si la app estaba apagada; si la fecha cambia se avisa de nuevo) y, una vez al día, `homehoard.maintenance.upcoming {count, tasks}` con las tareas de los próximos 7 días.
+
+**Compras**: `item_add_from_purchase {name, source_ref?, price?, merchant?, date?, room?, place?, warranty_ref?}` devuelve `{ok, status, item_id, url}`. Tienda, precio, fecha de compra, `source_ref` (`hoard://app/tipo/id`) y `warranty_ref` van a la ficha del aparato (un papel de garantía `hoard://kafka/document/<id>` queda además vinculado como papel de Kafka). `room` y `place` admiten nombres o una ruta como «Cocina › Cajón rojo»; sin sitio, o si no coincide, el objeto va a la habitación **Por colocar**, que se crea al usarla (un `warning` dice por qué). La llamada es idempotente por `source_ref` y nombre, avisa al grafo del hub (`from_purchase`) y no pierde nunca una compra. Los objetos dados de alta en el formulario web con `source_ref` se anuncian igual, una sola vez.
+
+**Formulario precargado**: la dirección `#/add?name=…&source_ref=…&price=…&merchant=…&date=…&room=…&place=…` (también `warranty_ref`) abre **Añadir objeto** con el nombre puesto, la habitación y el mueble elegidos si sus nombres coinciden, el aviso «Desde una compra» y la ficha guardada con el objeto. Los valores no válidos se ignoran.
+
+**Agenda**: `GET /api/family/agenda?from&to&sphere` (token) lista las tareas de mantenimiento que vencen en el rango como elementos `kind: maintenance` de día completo; las vencidas se listan siempre (prioridad alta, igual que las legales); las pausadas y borradas no.
 
 ## Arranque
 
