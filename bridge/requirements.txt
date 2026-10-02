@@ -1,0 +1,4 @@
+# The server itself is standard library. The family link (vendored hoard_link) needs httpx; the stdio MCP bridge needs mcp.
+# Without httpx the inventory keeps working and the Kafka features say the library is missing.
+httpx>=0.27
+mcp>=1.10,<2
