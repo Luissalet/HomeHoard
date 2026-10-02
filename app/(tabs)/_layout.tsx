@@ -28,6 +28,10 @@ export default function TabsLayout() {
         options={{ title: 'Buscar', tabBarIcon: ({ color, size }) => <Ionicons name="search-outline" size={size} color={color} /> }}
       />
       <Tabs.Screen
+        name="maintenance"
+        options={{ title: 'Mantenimiento', tabBarIcon: ({ color, size }) => <Ionicons name="construct-outline" size={size} color={color} /> }}
+      />
+      <Tabs.Screen
         name="settings"
         options={{ title: 'Ajustes', tabBarIcon: ({ color, size }) => <Ionicons name="settings-outline" size={size} color={color} /> }}
       />

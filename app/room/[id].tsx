@@ -5,6 +5,7 @@ import React, { useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useData } from '../../src/db/provider';
 import { ContainerSheet, RoomSheet } from '../../src/features/CreateSheets';
+import { MaintenanceBlock } from '../../src/features/MaintenanceBlock';
 import { useItemActions } from '../../src/features/ItemActionsSheet';
 import { colors, space } from '../../src/theme';
 import { Button, EmptyState, NavRow, SectionTitle } from '../../src/ui/components';
@@ -151,6 +152,9 @@ export default function RoomScreen() {
         ) : (
           <Text style={styles.dim}>No hay objetos sueltos. Abre un mueble para ver su contenido.</Text>
         )}
+
+        <View style={{ height: space(2) }} />
+        <MaintenanceBlock target={{ kind: 'room', id, name: room.name, roomKind: room.kind }} />
 
         {empty ? (
           <View style={{ marginTop: space(6) }}>

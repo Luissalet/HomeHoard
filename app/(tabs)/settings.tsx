@@ -5,6 +5,8 @@ import * as Linking from 'expo-linking';
 import React, { useState } from 'react';
 import { Modal, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useData } from '../../src/db/provider';
+import { getServerSync, SERVER_URL } from '../../src/db/serverSync';
+import { SYNC_LABEL, useSyncStatus } from '../../src/db/useSync';
 import { discardRestoredPhotos, exportBackup, pickBackup, updateFaustus } from '../../src/features/backup';
 import { colors, radius, space } from '../../src/theme';
 import { Button, Card, Chip, Input, SectionTitle } from '../../src/ui/components';
@@ -20,6 +22,8 @@ export default function AjustesScreen() {
   const qc = useQueryClient();
   const [tagEdit, setTagEdit] = useState<Tag | null>(null);
   const [confirmImport, setConfirmImport] = useState(false);
+  const sync = useSyncStatus();
+  const connected = sync.base !== null;
 
   const homesQ = useQuery({
     queryKey: ['settingsHomes'],
@@ -70,7 +74,7 @@ export default function AjustesScreen() {
   async function syncFaustus() {
     try {
       const count = await updateFaustus(data);
-      toast(`Faustus actualizado: ${count} objetos`);
+      toast(`Guardado en el ordenador: ${count} objetos`);
     } catch (error) {
       toast(error instanceof Error ? error.message : 'No se pudo actualizar Faustus');
     }
@@ -87,7 +91,7 @@ export default function AjustesScreen() {
       await data.importAll(bundle);
       refresh();
       const n = bundle.data.items.filter((i) => i.deleted_at == null).length;
-      toast(`Inventario restaurado: ${n === 1 ? '1 objeto' : `${n} objetos`}`);
+      toast(connected ? `Copia combinada con la casa del ordenador (${n === 1 ? '1 objeto' : `${n} objetos`} en la copia)` : `Inventario restaurado: ${n === 1 ? '1 objeto' : `${n} objetos`}`);
     } catch (error) {
       await discardRestoredPhotos(bundle);
       toast(error instanceof Error && error.message.includes('espacio disponible')
@@ -160,13 +164,13 @@ export default function AjustesScreen() {
             <Ionicons name="document-text-outline" size={22} color={colors.text} />
             <View style={{ flex: 1 }}>
               <Text style={styles.rowTitle}>Importar desde JSON</Text>
-              <Text style={styles.dim}>Restaura una copia. Sustituye todos los datos actuales.</Text>
+              <Text style={styles.dim}>{connected ? 'Combina una copia (por ejemplo, del móvil) con la casa del ordenador: gana el cambio más reciente de cada cosa.' : 'Restaura una copia. Sustituye todos los datos actuales.'}</Text>
             </View>
           </View>
           <View style={{ marginTop: space(3) }}>
             {confirmImport ? (
               <View style={{ gap: space(2) }}>
-                <Text style={styles.warn}>Esto reemplazará tu inventario actual. ¿Continuar?</Text>
+                <Text style={styles.warn}>{connected ? 'La copia se combinará con la casa del ordenador. ¿Continuar?' : 'Esto reemplazará tu inventario actual. ¿Continuar?'}</Text>
                 <Button label="Sí, importar" variant="danger" onPress={doImport} />
                 <Button label="Cancelar" variant="ghost" onPress={() => setConfirmImport(false)} />
               </View>
@@ -184,10 +188,10 @@ export default function AjustesScreen() {
             <Ionicons name="chatbubble-ellipses-outline" size={22} color={colors.accent} />
             <View style={{ flex: 1 }}>
               <Text style={styles.rowTitle}>¿Dónde guardé la linterna?</Text>
-              <Text style={styles.dim}>Faustus puede buscar tus objetos con una copia local sin fotos. Después de la primera actualización, los cambios de esta web se enviarán solos mientras el puente local esté abierto.</Text>
+              <Text style={styles.dim}>Faustus consulta y cambia la casa que guarda el ordenador (servidor de HomeHoard). Esta web se sincroniza sola con él; si no responde, guarda los cambios aquí y los envía al volver.</Text>
             </View>
           </View>
-          {Platform.OS === 'web' && ['127.0.0.1', 'localhost'].includes(window.location.hostname) ? <View style={{ marginTop: space(3), gap: space(2) }}><Button label="Actualizar Faustus ahora" onPress={syncFaustus} /><Button label="Abrir puente local" variant="ghost" onPress={() => { void Linking.openURL('http://127.0.0.1:5196/'); }} /></View> : <Text style={[styles.dim, { marginTop: space(3) }]}>Pasa la copia JSON a tu ordenador y cárgala en el puente local de HomeHoard. No se envía a ningún servicio externo.</Text>}
+          {Platform.OS === 'web' && ['127.0.0.1', 'localhost'].includes(window.location.hostname) ? <View style={{ marginTop: space(3), gap: space(2) }}><Text style={styles.dim}>{SYNC_LABEL[sync.mode]}{sync.lastSync ? ` · última sincronización ${new Date(sync.lastSync).toLocaleTimeString('es-ES')}` : ''}{sync.pending ? ` · ${sync.pending} cambios pendientes` : ''}</Text><Button label="Actualizar Faustus ahora" onPress={syncFaustus} /><Button label="Abrir importación de copias" variant="ghost" onPress={() => { void Linking.openURL(`${getServerSync()?.status.base || SERVER_URL}/importar`); }} /></View> : <Text style={[styles.dim, { marginTop: space(3) }]}>Pasa la copia JSON a tu ordenador e impórtala en HomeHoard del ordenador (http://127.0.0.1:5196/importar). No se envía a ningún servicio externo.</Text>}
         </Card>
       </View>
 
@@ -195,7 +199,7 @@ export default function AjustesScreen() {
         <SectionTitle>Acerca de</SectionTitle>
         <Card>
           <Text style={styles.homeName}>HomeHoard</Text>
-          <Text style={styles.dim}>Versión {Constants.expoConfig?.version ?? '0.2.0'} · Inventario local, sin cuenta ni nube.</Text>
+          <Text style={styles.dim}>Versión {Constants.expoConfig?.version ?? '0.3.0'} · Inventario local, sin cuenta ni nube.</Text>
         </Card>
       </View>
 

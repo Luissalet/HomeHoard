@@ -7,6 +7,7 @@ import { DataProvider } from '../src/db/provider';
 import { ItemActionsProvider } from '../src/features/ItemActionsSheet';
 import { colors } from '../src/theme';
 import { PromptProvider } from '../src/ui/PromptProvider';
+import { SyncBanner } from '../src/ui/SyncBanner';
 import { ToastProvider } from '../src/ui/ToastProvider';
 
 export default function RootLayout() {
@@ -18,6 +19,7 @@ export default function RootLayout() {
             <PromptProvider>
               <ItemActionsProvider>
                 <StatusBar style="dark" />
+                <SyncBanner />
                 <Stack
                   screenOptions={{
                     headerStyle: { backgroundColor: colors.bg },

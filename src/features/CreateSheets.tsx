@@ -18,7 +18,7 @@ export interface ContainerDraft {
   kind: string | null;
 }
 
-function SheetShell({
+export function SheetShell({
   title,
   visible,
   onClose,

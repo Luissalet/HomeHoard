@@ -42,6 +42,15 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
     };
   }, []);
 
+  // Cambios que llegan del ordenador (Faustus, otra pestaña): refresca lo que se está viendo.
+  useEffect(() => {
+    if (state !== 'ready') return;
+    const source = data as DataSource & { subscribe?: (cb: () => void) => () => void };
+    return source.subscribe?.(() => {
+      void queryClient.invalidateQueries();
+    });
+  }, [state]);
+
   if (state !== 'ready') {
     return (
       <View style={styles.center}>

@@ -4,7 +4,10 @@ import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import React from 'react';
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useData } from '../../src/db/provider';
+import { ItemCardSection } from '../../src/features/ItemCardSection';
 import { ItemForm, type ItemFormValues } from '../../src/features/ItemForm';
+import { MaintenanceBlock } from '../../src/features/MaintenanceBlock';
+import { PapersSection } from '../../src/features/PapersSection';
 import { printLabel } from '../../src/features/qrLabels';
 import { colors, space } from '../../src/theme';
 import { Button, EmptyState } from '../../src/ui/components';
@@ -133,6 +136,12 @@ export default function ItemScreen() {
           toast('Cambios guardados ✓');
         }}
       />
+
+      <View style={{ marginTop: space(6), gap: space(4) }}>
+        <ItemCardSection itemId={id} />
+        <PapersSection itemId={id} itemName={item.name} />
+        <MaintenanceBlock target={{ kind: 'item', id, name: item.name }} />
+      </View>
 
       <View style={{ marginTop: space(5) }}>
         <Button label="Imprimir etiqueta QR" variant="ghost" onPress={() => {

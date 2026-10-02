@@ -1,6 +1,6 @@
 {
   "name": "homehoard",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "private": true,
   "main": "index.js",
   "description": "Inventario doméstico completamente local con búsqueda por ubicación y consulta desde Faustus.",
@@ -11,7 +11,10 @@
     "ios": "expo run:ios",
     "web": "expo start --web",
     "test": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --experimental-strip-types --test tests/*.test.mjs",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "build:web": "expo export --platform web --output-dir bridge/web",
+    "server": "python bridge/server.py",
+    "test:server": "python -m unittest discover -s bridge -p \"test_*.py\""
   },
   "dependencies": {
     "@expo/metro-runtime": "~4.0.0",

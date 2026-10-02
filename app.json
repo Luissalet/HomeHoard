@@ -3,7 +3,7 @@
     "name": "HomeHoard",
     "slug": "homehoard",
     "scheme": "homehoard",
-    "version": "0.2.0",
+    "version": "0.3.0",
     "icon": "./app-icon.png",
     "orientation": "portrait",
     "userInterfaceStyle": "dark",
