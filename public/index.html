@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="%LANG_ISO_CODE%" data-hoard-app="homehoard">
+  <head>
+    <meta charset="utf-8" />
+    <meta httpEquiv="X-UA-Compatible" content="IE=edge" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no" />
+    <meta name="theme-color" content="#1c1814" />
+    <meta name="color-scheme" content="dark light" />
+    <title>%WEB_TITLE%</title>
+    <!-- Reset recomendado por react-native-web; el fondo oscuro de la familia evita un destello claro al cargar. -->
+    <style id="expo-reset">
+      html,
+      body {
+        height: 100%;
+        background-color: #1c1814;
+      }
+      body {
+        overflow: hidden;
+      }
+      #root {
+        display: flex;
+        height: 100%;
+        flex: 1;
+      }
+    </style>
+    <script>
+      try {
+        if (localStorage.getItem('homehoard.theme') === 'light') {
+          document.documentElement.style.backgroundColor = '#F6F3EB';
+          document.querySelector('meta[name="theme-color"]').setAttribute('content', '#F6F3EB');
+        }
+      } catch (e) {}
+    </script>
+  </head>
+  <body>
+    <noscript>HomeHoard necesita JavaScript.</noscript>
+    <div id="root"></div>
+  </body>
+</html>

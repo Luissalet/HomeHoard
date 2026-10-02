@@ -3,7 +3,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import React, { useEffect, useState } from 'react';
 import { KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
-import { colors, radius, space } from '../theme';
+import { colors, fonts, radius, space } from '../theme';
 import { Button, Input } from '../ui/components';
 import { CONTAINER_KINDS, containerLineIcon, ROOM_COLORS, ROOM_KINDS, roomLineIcon } from '../ui/kinds';
 
@@ -188,7 +188,7 @@ const styles = StyleSheet.create({
     maxHeight: 560,
   },
   head: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  title: { color: colors.text, fontSize: 17, fontWeight: '700' },
+  title: { color: colors.text, fontFamily: fonts.serif, fontSize: 17, fontWeight: '700' },
   label: { color: colors.textDim, fontSize: 12, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: space(2) },
   kindGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: space(2) },
   kindBtn: {
@@ -206,7 +206,7 @@ const styles = StyleSheet.create({
   kindLabel: { color: colors.textDim, fontSize: 13, fontWeight: '600' },
   colors: { flexDirection: 'row', flexWrap: 'wrap', gap: space(2) },
   swatch: { width: 34, height: 34, borderRadius: 17, borderWidth: 2, borderColor: 'transparent' },
-  swatchSel: { borderColor: '#fff' },
+  swatchSel: { borderColor: colors.text },
 });
 
 function withAlphaHex(hex: string, alpha: number): string {

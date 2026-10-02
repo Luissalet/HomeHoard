@@ -9,7 +9,7 @@
     "userInterfaceStyle": "dark",
     "newArchEnabled": false,
     "splash": {
-      "backgroundColor": "#0A0A0C"
+      "backgroundColor": "#1c1814"
     },
     "ios": {
       "supportsTablet": true,
@@ -21,7 +21,10 @@
     "web": {
       "bundler": "metro",
       "output": "single",
-      "favicon": "./app-icon.png"
+      "favicon": "./app-icon.png",
+      "lang": "es",
+      "themeColor": "#1c1814",
+      "backgroundColor": "#1c1814"
     },
     "plugins": [
       "expo-router",

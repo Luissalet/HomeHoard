@@ -128,10 +128,10 @@ export default function BuscarScreen() {
           <EmptyState
             icon="cube-outline"
             title="Tu inventario está vacío"
-            subtitle="Añade tu primer objeto con el botón ＋ y encuéntralo aquí en segundos."
+            subtitle="Añade tu primer objeto con el botón ＋ y aparecerá aquí."
           />
         ) : (
-          <EmptyState icon="search-outline" title="Nada por aquí" subtitle="Prueba otro término o quita algún filtro. La búsqueda ignora acentos y busca también en notas, etiquetas y ubicaciones." />
+          <EmptyState icon="search-outline" title="Sin resultados" subtitle="Prueba otro término o quita algún filtro. La búsqueda ignora acentos y busca también en notas, etiquetas y ubicaciones." />
         )
       ) : (
         <FlashList

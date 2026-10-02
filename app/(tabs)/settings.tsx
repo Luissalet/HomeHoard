@@ -8,7 +8,8 @@ import { useData } from '../../src/db/provider';
 import { getServerSync, SERVER_URL } from '../../src/db/serverSync';
 import { SYNC_LABEL, useSyncStatus } from '../../src/db/useSync';
 import { discardRestoredPhotos, exportBackup, pickBackup, updateFaustus } from '../../src/features/backup';
-import { colors, radius, space } from '../../src/theme';
+import { colors, fonts, radius, setTheme, space, themeName, type ThemeName } from '../../src/theme';
+import { Segmented } from '../../src/ui/form';
 import { Button, Card, Chip, Input, SectionTitle } from '../../src/ui/components';
 import { ROOM_COLORS } from '../../src/ui/kinds';
 import { usePrompt } from '../../src/ui/PromptProvider';
@@ -187,7 +188,7 @@ export default function AjustesScreen() {
           <View style={styles.backupRow}>
             <Ionicons name="chatbubble-ellipses-outline" size={22} color={colors.accent} />
             <View style={{ flex: 1 }}>
-              <Text style={styles.rowTitle}>¿Dónde guardé la linterna?</Text>
+              <Text style={styles.rowTitle}>Consultas de Faustus</Text>
               <Text style={styles.dim}>Faustus consulta y cambia la casa que guarda el ordenador (servidor de HomeHoard). Esta web se sincroniza sola con él; si no responde, guarda los cambios aquí y los envía al volver.</Text>
             </View>
           </View>
@@ -196,10 +197,28 @@ export default function AjustesScreen() {
       </View>
 
       <View style={{ gap: space(2) }}>
+        <SectionTitle>Apariencia</SectionTitle>
+        <Card>
+          <Text style={styles.rowTitle}>Tema</Text>
+          <Text style={styles.dim}>Oscuro es la paleta de la familia Hoard; claro es la de versiones anteriores.{Platform.OS === 'web' ? ' Al cambiarlo se recarga la página.' : ' Se aplica al volver a abrir la app.'}</Text>
+          <View style={{ marginTop: space(3) }}>
+            <Segmented<ThemeName>
+              options={[{ key: 'dark', label: 'Oscuro' }, { key: 'light', label: 'Claro' }]}
+              value={themeName}
+              onChange={(name) => {
+                if (name === themeName) return;
+                if (!setTheme(name)) toast('Tema guardado: se aplicará al volver a abrir HomeHoard');
+              }}
+            />
+          </View>
+        </Card>
+      </View>
+
+      <View style={{ gap: space(2) }}>
         <SectionTitle>Acerca de</SectionTitle>
         <Card>
           <Text style={styles.homeName}>HomeHoard</Text>
-          <Text style={styles.dim}>Versión {Constants.expoConfig?.version ?? '0.3.0'} · Inventario local, sin cuenta ni nube.</Text>
+          <Text style={styles.dim}>Versión {Constants.expoConfig?.version ?? '0.3.0'} · Inventario doméstico local, sin cuenta.</Text>
         </Card>
       </View>
 
@@ -302,7 +321,7 @@ function TagEditSheet({ tag, onClose, onSaved }: { tag: Tag | null; onClose: () 
 const styles = StyleSheet.create({
   wrap: { flex: 1, backgroundColor: colors.bg },
   content: { width: '100%', maxWidth: 900, alignSelf: 'center', padding: space(5), paddingBottom: space(16), gap: space(7) },
-  homeName: { color: colors.text, fontSize: 16, fontWeight: '700' },
+  homeName: { color: colors.text, fontFamily: fonts.serif, fontSize: 16, fontWeight: '700' },
   dim: { color: colors.textDim, fontSize: 13, marginTop: 2 },
   warn: { color: colors.text, fontSize: 14, textAlign: 'center' },
   tags: { flexDirection: 'row', flexWrap: 'wrap', gap: space(2) },
@@ -335,5 +354,5 @@ const styles = StyleSheet.create({
   label: { color: colors.textDim, fontSize: 12, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: space(2) },
   colorRow: { flexDirection: 'row', flexWrap: 'wrap', gap: space(2) },
   swatch: { width: 34, height: 34, borderRadius: 17, borderWidth: 2, borderColor: 'transparent' },
-  swatchSel: { borderColor: '#fff' },
+  swatchSel: { borderColor: colors.text },
 });

@@ -385,7 +385,7 @@ export function FloorPlanView({
               cy={selectedRect.y_cm + selectedRect.height_cm}
               r={12 / scale}
               fill={colors.accent}
-              stroke="#fff"
+              stroke={colors.bg}
               strokeWidth={2 / scale}
             />
           </>

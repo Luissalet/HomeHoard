@@ -80,5 +80,5 @@ const styles = StyleSheet.create({
   seg: { paddingVertical: space(1.5), paddingHorizontal: space(3), borderRadius: radius.pill, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface2 },
   segSel: { backgroundColor: colors.accent2, borderColor: colors.accent2 },
   segText: { color: colors.textDim, fontSize: 13, fontWeight: '600' },
-  segTextSel: { color: '#fff' },
+  segTextSel: { color: colors.onAccent },
 });

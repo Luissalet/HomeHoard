@@ -68,7 +68,7 @@ export function EmptyState({ icon = 'cube-outline', title, subtitle }: { icon?: 
 export function Fab({ onPress, icon = 'add' }: { onPress: () => void; icon?: keyof typeof Ionicons.glyphMap }) {
   return (
     <Pressable onPress={onPress} style={({ pressed }) => [styles.fab, pressed && { opacity: 0.85 }]} accessibilityLabel="Añadir objeto">
-      <Ionicons name={icon} size={28} color="#fff" />
+      <Ionicons name={icon} size={28} color={colors.onAccent} />
     </Pressable>
   );
 }
@@ -114,7 +114,7 @@ export function Button({ label, onPress, variant = 'primary' }: { label: string;
         pressed && { opacity: 0.85 },
       ]}
     >
-      <Text style={[styles.btnText, variant === 'ghost' && { color: colors.text }]}>{label}</Text>
+      <Text style={[styles.btnText, variant === 'ghost' && { color: colors.text }, variant === 'danger' && { color: colors.onDanger }]}>{label}</Text>
     </Pressable>
   );
 }
@@ -142,7 +142,7 @@ const styles = StyleSheet.create({
   },
   chipSelected: { backgroundColor: colors.accent2, borderColor: colors.accent2 },
   chipText: { color: colors.textDim, fontSize: 13, fontWeight: '600' },
-  chipTextSelected: { color: '#fff' },
+  chipTextSelected: { color: colors.onAccent },
   dot: { width: 8, height: 8, borderRadius: 4 },
   section: { color: colors.textDim, fontSize: 12, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.6, marginBottom: space(2) },
   empty: { alignItems: 'center', justifyContent: 'center', padding: space(10), gap: space(2) },
@@ -178,7 +178,7 @@ const styles = StyleSheet.create({
   btnPrimary: { backgroundColor: colors.accent2 },
   btnGhost: { backgroundColor: colors.surface2, borderWidth: StyleSheet.hairlineWidth, borderColor: colors.border },
   btnDanger: { backgroundColor: colors.danger },
-  btnText: { color: '#fff', fontSize: 15, fontWeight: '700' },
+  btnText: { color: colors.onAccent, fontSize: 15, fontWeight: '700' },
   navRow: {
     flexDirection: 'row',
     alignItems: 'center',

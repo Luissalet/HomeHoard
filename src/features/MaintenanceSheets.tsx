@@ -49,7 +49,7 @@ export function TaskRow({ task, onDone, onEdit, showTarget = true, mirror }: {
       </View>
       {!task.paused ? (
         <Pressable onPress={onDone} accessibilityRole="button" accessibilityLabel={`Marcar hecho: ${task.title}`} hitSlop={6} style={styles.doneBtn}>
-          <Ionicons name="checkmark" size={16} color="#fff" />
+          <Ionicons name="checkmark" size={16} color={colors.onAccent} />
           <Text style={styles.doneText}>Hecho</Text>
         </Pressable>
       ) : null}
@@ -380,7 +380,7 @@ const styles = StyleSheet.create({
   ref: { color: colors.textDim, fontSize: 12, fontStyle: 'italic' },
   badges: { flexDirection: 'row', flexWrap: 'wrap', gap: space(1.5), alignItems: 'center' },
   doneBtn: { flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: colors.accent2, paddingHorizontal: space(3), paddingVertical: space(2), borderRadius: radius.pill },
-  doneText: { color: '#fff', fontWeight: '700', fontSize: 13 },
+  doneText: { color: colors.onAccent, fontWeight: '700', fontSize: 13 },
   choice: { flexDirection: 'row', alignItems: 'center', gap: space(3), padding: space(3), borderRadius: radius.md, backgroundColor: colors.surface2 },
   pickedRow: { flexDirection: 'row', alignItems: 'center', gap: space(2), flexWrap: 'wrap' },
   link: { color: colors.accent, fontWeight: '700' },

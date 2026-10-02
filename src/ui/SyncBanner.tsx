@@ -21,6 +21,6 @@ export function SyncBanner() {
 }
 
 const styles = StyleSheet.create({
-  banner: { flexDirection: 'row', alignItems: 'center', gap: space(2), paddingHorizontal: space(4), paddingVertical: space(2), backgroundColor: '#E9DFCB' },
+  banner: { flexDirection: 'row', alignItems: 'center', gap: space(2), paddingHorizontal: space(4), paddingVertical: space(2), backgroundColor: colors.banner },
   text: { color: colors.text, fontSize: 13, flex: 1 },
 });

@@ -8,7 +8,7 @@ import { Linking, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useData } from '../db/provider';
 import type { ID } from '../db/types';
 import { useSyncStatus } from '../db/useSync';
-import { colors, radius, space } from '../theme';
+import { colors, fonts, radius, space } from '../theme';
 import { Button, Input } from '../ui/components';
 import { Badge, Segmented } from '../ui/form';
 import { useToast } from '../ui/ToastProvider';
@@ -205,7 +205,7 @@ function LinkSheet({ visible, onClose, linked, itemName, onLink }: { visible: bo
 const styles = StyleSheet.create({
   card: { backgroundColor: colors.surface, borderRadius: radius.md, borderWidth: StyleSheet.hairlineWidth, borderColor: colors.border, padding: space(4), gap: space(3) },
   head: { flexDirection: 'row', alignItems: 'center', gap: space(2) },
-  title: { color: colors.text, fontSize: 16, fontWeight: '700' },
+  title: { color: colors.text, fontFamily: fonts.serif, fontSize: 16, fontWeight: '700' },
   dim: { color: colors.textDim, fontSize: 13 },
   warn: { color: colors.warn, fontSize: 13, fontWeight: '600' },
   doc: { flexDirection: 'row', alignItems: 'center', gap: space(3), padding: space(3), borderRadius: radius.md, backgroundColor: colors.surface2 },
@@ -214,7 +214,7 @@ const styles = StyleSheet.create({
   actions: { flexDirection: 'row', gap: space(2), flexWrap: 'wrap' },
   link: { color: colors.accent, fontWeight: '700' },
   v: { color: colors.text, fontSize: 14 },
-  hit: { fontWeight: '800', backgroundColor: '#F1E3B8' },
+  hit: { fontWeight: '800', backgroundColor: colors.highlight, color: colors.text },
   cite: { color: colors.accent, fontSize: 12, fontWeight: '600' },
   sep: { height: StyleSheet.hairlineWidth, backgroundColor: colors.border, marginVertical: space(2) },
 });

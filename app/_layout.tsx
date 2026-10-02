@@ -5,7 +5,7 @@ import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { DataProvider } from '../src/db/provider';
 import { ItemActionsProvider } from '../src/features/ItemActionsSheet';
-import { colors } from '../src/theme';
+import { colors, fonts, isDark } from '../src/theme';
 import { PromptProvider } from '../src/ui/PromptProvider';
 import { SyncBanner } from '../src/ui/SyncBanner';
 import { ToastProvider } from '../src/ui/ToastProvider';
@@ -18,12 +18,13 @@ export default function RootLayout() {
           <ToastProvider>
             <PromptProvider>
               <ItemActionsProvider>
-                <StatusBar style="dark" />
+                <StatusBar style={isDark ? 'light' : 'dark'} />
                 <SyncBanner />
                 <Stack
                   screenOptions={{
                     headerStyle: { backgroundColor: colors.bg },
                     headerTintColor: colors.text,
+                    headerTitleStyle: { fontFamily: fonts.serif, fontWeight: '700' },
                     headerShadowVisible: false,
                     contentStyle: { backgroundColor: colors.bg },
                   }}

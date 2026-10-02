@@ -99,7 +99,7 @@ const styles = StyleSheet.create({
     gap: space(4),
     maxWidth: 480,
     marginHorizontal: space(5),
-    backgroundColor: '#26262E',
+    backgroundColor: colors.toast,
     borderColor: colors.border,
     borderWidth: StyleSheet.hairlineWidth,
     borderRadius: radius.md,
@@ -111,6 +111,6 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 4 },
     elevation: 8,
   },
-  msg: { color: colors.bg, fontSize: 14, flexShrink: 1 },
-  action: { color: '#8FD3BB', fontSize: 14, fontWeight: '800', textTransform: 'uppercase', letterSpacing: 0.4 },
+  msg: { color: colors.toastText, fontSize: 14, flexShrink: 1 },
+  action: { color: colors.toastAction, fontSize: 14, fontWeight: '800', textTransform: 'uppercase', letterSpacing: 0.4 },
 });

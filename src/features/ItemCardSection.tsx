@@ -6,7 +6,7 @@ import React, { useEffect, useState } from 'react';
 import { Linking, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useData } from '../db/provider';
 import type { Consumable, ID, ItemDetails } from '../db/types';
-import { colors, radius, space } from '../theme';
+import { colors, fonts, radius, space } from '../theme';
 import { Button, Input } from '../ui/components';
 import { Badge, Field, TextField } from '../ui/form';
 import { useToast } from '../ui/ToastProvider';
@@ -165,7 +165,7 @@ function ReadOnly({ details }: { details: ItemDetails }) {
 const styles = StyleSheet.create({
   card: { backgroundColor: colors.surface, borderRadius: radius.md, borderWidth: StyleSheet.hairlineWidth, borderColor: colors.border, padding: space(4), gap: space(3) },
   head: { flexDirection: 'row', alignItems: 'center', gap: space(2) },
-  title: { color: colors.text, fontSize: 16, fontWeight: '700' },
+  title: { color: colors.text, fontFamily: fonts.serif, fontSize: 16, fontWeight: '700' },
   dim: { color: colors.textDim, fontSize: 13 },
   grid: { flexDirection: 'row', flexWrap: 'wrap', gap: space(3) },
   cell: { flexGrow: 1, flexBasis: 220 },

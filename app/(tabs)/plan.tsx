@@ -120,7 +120,7 @@ export default function MapaScreen() {
             onPress={() => setEditing((e) => !e)}
             accessibilityLabel={editing ? 'Terminar edición' : 'Editar plano'}
           >
-            <Ionicons name={editing ? 'checkmark' : 'pencil'} size={18} color={editing ? '#fff' : colors.text} />
+            <Ionicons name={editing ? 'checkmark' : 'pencil'} size={18} color={editing ? colors.onAccent : colors.text} />
           </Pressable>
         ) : null}
         <Button label="＋ Habitación" variant="ghost" onPress={() => setRoomSheet(true)} />
