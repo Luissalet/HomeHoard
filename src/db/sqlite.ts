@@ -2,8 +2,11 @@
 // Misma semántica que MemorySource (validada en Node) pero sobre expo-sqlite.
 import * as SQLite from 'expo-sqlite';
 import { newId, now } from './ids';
+import { applyTaskPatch, cleanDetails, newTask } from './mutations';
+import { linkId, recordsFromBundle } from './records';
 import { MIGRATIONS, SCHEMA } from './schema';
 import { rankSearch } from './searchUtil';
+import { computeNextDue } from '../features/maintenanceCore';
 import type {
   Container,
   DataSource,
@@ -14,8 +17,16 @@ import type {
   Household,
   ID,
   Item,
+  ItemDetails,
+  ItemDetailsInput,
+  ItemTag,
   ItemWithLocation,
+  MaintenanceLog,
+  MaintenanceTarget,
+  MaintenanceTask,
+  MaintenanceWithTarget,
   NewItemInput,
+  NewMaintenanceInput,
   PathSegment,
   Rect,
   Room,
@@ -24,7 +35,28 @@ import type {
   Stats,
   Tag,
   UpdateItemInput,
+  UpdateMaintenanceInput,
 } from './types';
+
+const TASK_COLS = ['id', 'target_kind', 'target_id', 'title', 'every_days', 'every_months', 'anchor_month', 'last_done_at', 'next_due',
+  'next_due_manual', 'notes', 'basis', 'legal_ref', 'template_id', 'kafka_deadline_id', 'paused', 'created_at', 'updated_at', 'deleted_at'] as const;
+const DETAIL_COLS = ['id', 'item_id', 'brand', 'model', 'serial', 'purchase_date', 'store', 'price', 'warranty_until', 'warranty_source',
+  'kafka_doc_ids', 'manual_url', 'consumables', 'notes', 'created_at', 'updated_at', 'deleted_at'] as const;
+const LOG_COLS = ['id', 'task_id', 'done_at', 'note', 'cost', 'who', 'created_at', 'updated_at', 'deleted_at'] as const;
+
+type Row = Record<string, unknown>;
+const bind = (v: unknown): SQLite.SQLiteBindValue => (v === undefined ? null : Array.isArray(v) ? JSON.stringify(v) : (v as SQLite.SQLiteBindValue));
+const parseList = <T,>(v: unknown): T[] => {
+  if (Array.isArray(v)) return v as T[];
+  try {
+    const parsed = JSON.parse(String(v ?? '[]'));
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+};
+const detailsRow = (r: Row | null): ItemDetails | null =>
+  r ? ({ ...r, kafka_doc_ids: parseList<string>(r.kafka_doc_ids), consumables: parseList(r.consumables) } as unknown as ItemDetails) : null;
 
 export class SqliteSource implements DataSource {
   private db: SQLite.SQLiteDatabase | null = null;
@@ -177,7 +209,7 @@ export class SqliteSource implements DataSource {
     const conts = await this.d.getAllAsync<{ id: ID; name: string }>('SELECT id, name FROM container');
     const links = await this.d.getAllAsync<Tag & { item_id: ID }>(
       `SELECT it.item_id AS item_id, t.* FROM item_tag it
-       JOIN tag t ON t.id = it.tag_id WHERE t.deleted_at IS NULL
+       JOIN tag t ON t.id = it.tag_id WHERE t.deleted_at IS NULL AND it.deleted_at IS NULL
        ORDER BY t.name COLLATE NOCASE`
     );
     const roomName = new Map(rooms.map((r) => [r.id, r.name]));
@@ -283,7 +315,7 @@ export class SqliteSource implements DataSource {
     if (tagIds && tagIds.length) {
       const placeholders = tagIds.map(() => '?').join(',');
       clauses.push(`EXISTS (
-        SELECT 1 FROM item_tag it WHERE it.item_id = i.id AND it.tag_id IN (${placeholders})
+        SELECT 1 FROM item_tag it WHERE it.item_id = i.id AND it.deleted_at IS NULL AND it.tag_id IN (${placeholders})
       )`);
       params.push(...tagIds);
     }
@@ -337,22 +369,33 @@ export class SqliteSource implements DataSource {
 
   async deleteTag(tagId: ID): Promise<void> {
     const t = now();
-    await this.d.runAsync('DELETE FROM item_tag WHERE tag_id = ?', [tagId]);
+    await this.d.runAsync('UPDATE item_tag SET deleted_at = ?, updated_at = ? WHERE tag_id = ? AND deleted_at IS NULL', [t, t, tagId]);
     await this.d.runAsync('UPDATE tag SET deleted_at = ?, updated_at = ? WHERE id = ?', [t, t, tagId]);
   }
 
   async getItemTags(itemId: ID): Promise<Tag[]> {
     return this.d.getAllAsync<Tag>(
       `SELECT t.* FROM tag t JOIN item_tag it ON it.tag_id = t.id
-       WHERE it.item_id = ? AND t.deleted_at IS NULL ORDER BY t.name COLLATE NOCASE`,
+       WHERE it.item_id = ? AND t.deleted_at IS NULL AND it.deleted_at IS NULL ORDER BY t.name COLLATE NOCASE`,
       [itemId]
     );
   }
 
+  /** Vínculos con lápida: quitar una etiqueta queda registrado para exportarlo y combinarlo. */
   private async setItemTags(itemId: ID, tagIds: ID[]): Promise<void> {
-    await this.d.runAsync('DELETE FROM item_tag WHERE item_id = ?', [itemId]);
-    for (const tagId of tagIds) {
-      await this.d.runAsync('INSERT OR IGNORE INTO item_tag (item_id, tag_id) VALUES (?,?)', [itemId, tagId]);
+    const t = now();
+    const wanted = new Set(tagIds);
+    const placeholders = tagIds.map(() => '?').join(',');
+    await this.d.runAsync(
+      `UPDATE item_tag SET deleted_at = ?, updated_at = ? WHERE item_id = ? AND deleted_at IS NULL${tagIds.length ? ` AND tag_id NOT IN (${placeholders})` : ''}`,
+      [t, t, itemId, ...tagIds]
+    );
+    for (const tagId of wanted) {
+      await this.d.runAsync(
+        `INSERT INTO item_tag (item_id, tag_id, id, created_at, updated_at, deleted_at) VALUES (?,?,?,?,?,NULL)
+         ON CONFLICT(item_id, tag_id) DO UPDATE SET deleted_at = NULL, updated_at = excluded.updated_at WHERE item_tag.deleted_at IS NOT NULL`,
+        [itemId, tagId, linkId(itemId, tagId), t, t]
+      );
     }
   }
 
@@ -641,11 +684,109 @@ export class SqliteSource implements DataSource {
     };
   }
 
+  // ── Ficha del objeto ────────────────────────────────────────
+  async getItemDetails(itemId: ID): Promise<ItemDetails | null> {
+    return detailsRow(await this.d.getFirstAsync<Row>('SELECT * FROM item_details WHERE id = ? AND deleted_at IS NULL', [itemId]));
+  }
+
+  async saveItemDetails(itemId: ID, patch: ItemDetailsInput): Promise<ItemDetails> {
+    const t = now();
+    const current = detailsRow(await this.d.getFirstAsync<Row>('SELECT * FROM item_details WHERE id = ?', [itemId]));
+    const row: ItemDetails = {
+      id: itemId, item_id: itemId, brand: null, model: null, serial: null, purchase_date: null, store: null, price: null, warranty_until: null,
+      warranty_source: null, kafka_doc_ids: [], manual_url: null, consumables: [], notes: null, created_at: t, ...(current ?? {}),
+      ...cleanDetails(patch), updated_at: Math.max(t, (current?.updated_at ?? 0) + 1), deleted_at: null,
+    };
+    if (patch.warranty_until !== undefined && patch.warranty_source === undefined) row.warranty_source = row.warranty_until ? 'manual' : null;
+    await this.upsert('item_details', DETAIL_COLS, row as unknown as Row);
+    return row;
+  }
+
+  private async upsert(table: string, cols: readonly string[], row: Row): Promise<void> {
+    await this.d.runAsync(`INSERT OR REPLACE INTO ${table} (${cols.join(', ')}) VALUES (${cols.map(() => '?').join(',')})`, cols.map((c) => bind(row[c])));
+  }
+
+  // ── Mantenimiento ───────────────────────────────────────────
+  private async targetOf(kind: MaintenanceTarget, id: ID): Promise<{ name: string | null; path: string | null }> {
+    if (kind === 'item') {
+      const path = await this.getItemPath(id);
+      const name = path.length ? (await this.getItem(id))?.name ?? null : null;
+      const crumbs = path.filter((s) => s.kind === 'room' || s.kind === 'container').map((s) => s.name);
+      return { name, path: crumbs.join(' › ') || null };
+    }
+    const table = kind === 'container' ? 'container' : kind === 'room' ? 'room' : 'home';
+    const row = await this.d.getFirstAsync<{ name: string }>(`SELECT name FROM ${table} WHERE id = ? AND deleted_at IS NULL`, [id]);
+    return { name: row?.name ?? null, path: row?.name ?? null };
+  }
+
+  async listMaintenance(filter?: { target_kind?: MaintenanceTarget; target_id?: ID }): Promise<MaintenanceWithTarget[]> {
+    const clauses = ['deleted_at IS NULL'];
+    const params: SQLite.SQLiteBindValue[] = [];
+    if (filter?.target_kind) { clauses.push('target_kind = ?'); params.push(filter.target_kind); }
+    if (filter?.target_id) { clauses.push('target_id = ?'); params.push(filter.target_id); }
+    const rows = await this.d.getAllAsync<MaintenanceTask>(`SELECT * FROM maintenance_task WHERE ${clauses.join(' AND ')} ORDER BY COALESCE(next_due, '9999'), title`, params);
+    const out: MaintenanceWithTarget[] = [];
+    for (const r of rows) {
+      const { name, path } = await this.targetOf(r.target_kind, r.target_id);
+      out.push({ ...r, targetName: name, targetPath: path });
+    }
+    return out;
+  }
+
+  async getMaintenance(taskId: ID): Promise<MaintenanceTask | null> {
+    return (await this.d.getFirstAsync<MaintenanceTask>('SELECT * FROM maintenance_task WHERE id = ? AND deleted_at IS NULL', [taskId])) ?? null;
+  }
+
+  async addMaintenance(input: NewMaintenanceInput): Promise<MaintenanceTask> {
+    const task = newTask(input, now());
+    await this.upsert('maintenance_task', TASK_COLS, task as unknown as Row);
+    return task;
+  }
+
+  async updateMaintenance(taskId: ID, patch: UpdateMaintenanceInput): Promise<MaintenanceTask | null> {
+    const task = await this.d.getFirstAsync<MaintenanceTask>('SELECT * FROM maintenance_task WHERE id = ?', [taskId]);
+    if (!task) return null;
+    applyTaskPatch(task, patch, now());
+    await this.upsert('maintenance_task', TASK_COLS, task as unknown as Row);
+    return task;
+  }
+
+  async deleteMaintenance(taskId: ID): Promise<void> {
+    const t = now();
+    await this.d.runAsync('UPDATE maintenance_task SET deleted_at = ?, updated_at = MAX(?, updated_at + 1) WHERE id = ?', [t, t, taskId]);
+  }
+
+  async markMaintenanceDone(taskId: ID, entry: { done_at?: number; note?: string | null; cost?: number | null; who?: string | null } = {}): Promise<MaintenanceTask | null> {
+    const task = await this.getMaintenance(taskId);
+    if (!task) return null;
+    const t = now();
+    const doneAt = entry.done_at ?? t;
+    const log: MaintenanceLog = { id: newId(), task_id: taskId, done_at: doneAt, note: entry.note ?? null, cost: entry.cost ?? null, who: entry.who ?? null, created_at: t, updated_at: t, deleted_at: null };
+    await this.upsert('maintenance_log', LOG_COLS, log as unknown as Row);
+    task.last_done_at = Math.max(doneAt, task.last_done_at ?? 0);
+    task.next_due_manual = 0;
+    task.next_due = computeNextDue(task, t);
+    task.updated_at = Math.max(t, task.updated_at + 1);
+    await this.upsert('maintenance_task', TASK_COLS, task as unknown as Row);
+    return task;
+  }
+
+  async listMaintenanceLog(taskId: ID): Promise<MaintenanceLog[]> {
+    return this.d.getAllAsync<MaintenanceLog>('SELECT * FROM maintenance_log WHERE task_id = ? AND deleted_at IS NULL ORDER BY done_at DESC', [taskId]);
+  }
+
+  async clearAll(): Promise<void> {
+    const t = now();
+    for (const table of ['home', 'floor', 'room', 'container', 'item', 'tag', 'item_tag', 'item_details', 'maintenance_task', 'maintenance_log']) {
+      await this.d.runAsync(`UPDATE ${table} SET deleted_at = ?, updated_at = ? WHERE deleted_at IS NULL`, [t, t]);
+    }
+  }
+
   // ── Backup local ────────────────────────────────────────────
   async exportAll(): Promise<ExportBundle> {
     return {
       format: 'homehoard-export',
-      version: 1,
+      version: 3,
       exported_at: now(),
       data: {
         households: await this.d.getAllAsync<Household>('SELECT * FROM household'),
@@ -655,17 +796,20 @@ export class SqliteSource implements DataSource {
         containers: await this.d.getAllAsync<Container>('SELECT * FROM container'),
         items: await this.d.getAllAsync<Item>('SELECT * FROM item'),
         tags: await this.d.getAllAsync<Tag>('SELECT * FROM tag'),
-        itemTags: await this.d.getAllAsync<{ item_id: ID; tag_id: ID }>('SELECT * FROM item_tag'),
+        itemTags: await this.d.getAllAsync<ItemTag>('SELECT * FROM item_tag'),
+        item_details: (await this.d.getAllAsync<Row>('SELECT * FROM item_details')).map((r) => detailsRow(r)!),
+        maintenance_tasks: await this.d.getAllAsync<MaintenanceTask>('SELECT * FROM maintenance_task'),
+        maintenance_log: await this.d.getAllAsync<MaintenanceLog>('SELECT * FROM maintenance_log'),
       },
     };
   }
 
   async importAll(bundle: ExportBundle): Promise<void> {
     if (bundle.format !== 'homehoard-export') throw new Error('Archivo no reconocido');
-    const d = bundle.data;
+    const d = recordsFromBundle(bundle).tables as unknown as ExportBundle['data'] & { itemTags: ItemTag[] };
     await this.d.execAsync('BEGIN');
     try {
-      for (const table of ['item_tag', 'item_photo', 'item', 'container', 'room', 'floor', 'home', 'tag', 'member', 'household']) {
+      for (const table of ['item_tag', 'item_photo', 'maintenance_log', 'maintenance_task', 'item_details', 'item', 'container', 'room', 'floor', 'home', 'tag', 'member', 'household']) {
         await this.d.execAsync(`DELETE FROM ${table}`);
       }
       for (const r of d.households) {
@@ -690,8 +834,12 @@ export class SqliteSource implements DataSource {
         await this.d.runAsync('INSERT INTO tag (id, household_id, name, color, created_at, updated_at, deleted_at) VALUES (?,?,?,?,?,?,?)', [r.id, r.household_id, r.name, r.color, r.created_at, r.updated_at, r.deleted_at]);
       }
       for (const r of d.itemTags) {
-        await this.d.runAsync('INSERT OR IGNORE INTO item_tag (item_id, tag_id) VALUES (?,?)', [r.item_id, r.tag_id]);
+        await this.d.runAsync('INSERT OR IGNORE INTO item_tag (item_id, tag_id, id, created_at, updated_at, deleted_at) VALUES (?,?,?,?,?,?)',
+          [r.item_id, r.tag_id, r.id, r.created_at ?? null, r.updated_at, r.deleted_at]);
       }
+      for (const r of d.item_details ?? []) await this.upsert('item_details', DETAIL_COLS, r as unknown as Row);
+      for (const r of d.maintenance_tasks ?? []) await this.upsert('maintenance_task', TASK_COLS, r as unknown as Row);
+      for (const r of d.maintenance_log ?? []) await this.upsert('maintenance_log', LOG_COLS, r as unknown as Row);
       await this.d.execAsync('COMMIT');
     } catch (e) {
       await this.d.execAsync('ROLLBACK');

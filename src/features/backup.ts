@@ -6,7 +6,8 @@ import * as FileSystem from 'expo-file-system';
 import * as Sharing from 'expo-sharing';
 import { Platform } from 'react-native';
 import { newId } from '../db/ids';
-import { hasExampleItems } from '../db/demo';
+import { onlyExampleItems } from '../db/demo';
+import { getServerSync } from '../db/serverSync';
 import type { DataSource, ExportBundle } from '../db/types';
 
 const PHOTO_DATA = /^data:image\/(jpeg|png|webp);base64,([A-Za-z0-9+/]+={0,2})$/;
@@ -43,14 +44,14 @@ async function makePortable(data: DataSource): Promise<ExportBundle> {
       item.photo_uri = null;
     }
   }
-  return { ...bundle, version: 2, photos, data: { ...bundle.data, items } };
+  return { ...bundle, version: 3, photos, data: { ...bundle.data, items } };
 }
 
 async function restorePhotos(bundle: ExportBundle): Promise<ExportBundle> {
   if (bundle.format !== 'homehoard-export' || !bundle.data || !Array.isArray(bundle.data.items)) {
     throw new Error('Copia no reconocida');
   }
-  if (bundle.version !== 2) return bundle;
+  if (bundle.version === 1) return bundle;
   const items = bundle.data.items.map((item) => ({ ...item }));
   const written: string[] = [];
   try {
@@ -80,7 +81,7 @@ async function restorePhotos(bundle: ExportBundle): Promise<ExportBundle> {
 
 /** Remove newly restored native photos if the following database import fails. */
 export async function discardRestoredPhotos(bundle: ExportBundle): Promise<void> {
-  if (bundle.version !== 2 || Platform.OS === 'web') return;
+  if (bundle.version === 1 || Platform.OS === 'web') return;
   const dir = `${FileSystem.documentDirectory}photos/`;
   await Promise.allSettled(bundle.data.items.map(async (item) => {
     if (bundle.photos?.[item.id] && item.photo_uri?.startsWith(dir)) {
@@ -124,23 +125,19 @@ export async function exportBackup(data: DataSource): Promise<string> {
   return filename;
 }
 
-/** Actualiza la copia de consulta de Faustus por loopback; nunca envía fotos. */
+/**
+ * «Actualizar Faustus ahora»: fuerza la sincronización con el ordenador (que es quien responde a Faustus).
+ * Devuelve cuántos objetos tiene el ordenador.
+ */
 export async function updateFaustus(data: DataSource): Promise<number> {
-  if (Platform.OS !== 'web' || !['127.0.0.1', 'localhost'].includes(window.location.hostname)) {
+  if (Platform.OS !== 'web') {
     throw new Error('Abre HomeHoard en el ordenador para actualizar Faustus');
   }
+  const sync = getServerSync();
+  if (!sync) throw new Error('Sin conexión con el ordenador. Abre el servidor de HomeHoard (python bridge/server.py).');
   const bundle = await data.exportAll();
-  if (hasExampleItems(bundle.data.items)) throw new Error('La casa de ejemplo sigue en el inventario. Empieza con tu casa antes de actualizar Faustus.');
-  const items = bundle.data.items.map((item) => ({ ...item, photo_uri: null }));
-  const response = await fetch('http://127.0.0.1:5196/api/import', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ ...bundle, data: { ...bundle.data, items } }),
-  });
-  if (!response.ok) throw new Error('No se pudo actualizar Faustus. Comprueba que el puente local está abierto.');
-  const result = await response.json();
-  try { localStorage.setItem('homehoard.faustus.auto', '1'); } catch { /* manual update still succeeded */ }
-  return result.items;
+  if (onlyExampleItems(bundle.data.items)) throw new Error('La casa de ejemplo sigue en el inventario. Empieza con tu casa antes de actualizar Faustus.');
+  return sync.forceSync();
 }
 
 /** Pide un archivo JSON y devuelve el bundle parseado (o null si se cancela). */

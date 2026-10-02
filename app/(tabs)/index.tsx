@@ -31,8 +31,7 @@ export default function InicioScreen() {
   const pureDemo = isDemo && onlyExampleItems(demoQ.data ?? []);
 
   async function clearDemo() {
-    const bundle = await data.exportAll();
-    await data.importAll({ ...bundle, data: { ...bundle.data, homes: [], floors: [], rooms: [], containers: [], items: [], tags: [], itemTags: [] } });
+    await data.clearAll();
     setConfirmDemoReset(false);
     await qc.invalidateQueries();
     toast('Casa de ejemplo eliminada');

@@ -1,9 +1,15 @@
 // Fuente de datos en memoria - usada en WEB (Metro resuelve index.web.ts).
 // Evita expo-sqlite en el bundle web (que da problemas) y persiste en localStorage.
 // Misma semantica que SqliteSource; la logica de arbol/busqueda esta testeada en Node.
+// Cuando el ordenador (servidor de HomeHoard) responde, él guarda la casa: esta fuente se sincroniza con él
+// (serverSync.ts) y localStorage queda como copia para trabajar sin conexión.
 import { newId, now } from './ids';
-import { hasExampleItems } from './demo';
+import { onlyExampleItems } from './demo';
+import { emptyTables, linkId, mergeInto, recordsFromBundle, TABLES, type AnyRecord, type Tables } from './records';
 import { rankSearch } from './searchUtil';
+import { ServerSync, type SyncEnv } from './serverSync';
+import { computeNextDue } from '../features/maintenanceCore';
+import { applyTaskPatch, cleanDetails, emptyDetails, newTask } from './mutations';
 import type {
   Container,
   DataSource,
@@ -14,8 +20,16 @@ import type {
   Household,
   ID,
   Item,
+  ItemDetails,
+  ItemDetailsInput,
+  ItemTag,
   ItemWithLocation,
+  MaintenanceLog,
+  MaintenanceTarget,
+  MaintenanceTask,
+  MaintenanceWithTarget,
   NewItemInput,
+  NewMaintenanceInput,
   PathSegment,
   Rect,
   Room,
@@ -24,10 +38,10 @@ import type {
   Stats,
   Tag,
   UpdateItemInput,
+  UpdateMaintenanceInput,
 } from './types';
 
 const STORAGE_KEY = 'homehoard.v1';
-const FAUSTUS_AUTO_KEY = 'homehoard.faustus.auto';
 
 interface Store {
   households: Household[];
@@ -37,107 +51,128 @@ interface Store {
   containers: Container[];
   items: Item[];
   tags: Tag[];
-  itemTags: { item_id: ID; tag_id: ID }[];
+  itemTags: ItemTag[];
+  item_details: ItemDetails[];
+  maintenance_tasks: MaintenanceTask[];
+  maintenance_log: MaintenanceLog[];
 }
 
-const alive = <T extends { deleted_at: number | null }>(r: T): boolean => r.deleted_at == null;
+const emptyStore = (): Store => emptyTables() as unknown as Store;
+
+/** Normaliza lo guardado por versiones anteriores: favoritos, vínculos de etiquetas sin id/fecha, tablas nuevas. */
+export function migrateStore(raw: Partial<Store> | null | undefined): Store {
+  const s = { ...emptyStore(), ...(raw ?? {}) } as Store;
+  for (const t of TABLES) if (!Array.isArray((s as unknown as Tables)[t])) (s as unknown as Record<string, unknown[]>)[t] = [];
+  s.items = s.items.map((i) => ({ ...i, favorite: i.favorite ?? 0 }));
+  const itemTimes = new Map(s.items.map((i) => [i.id, i.updated_at ?? 0]));
+  s.itemTags = s.itemTags.map((l) => ({
+    ...l,
+    id: linkId(l.item_id, l.tag_id),
+    updated_at: l.updated_at ?? itemTimes.get(l.item_id) ?? 0,
+    deleted_at: l.deleted_at ?? null,
+  }));
+  return s;
+}
+
+function browserEnv(): SyncEnv | null {
+  if (typeof window === 'undefined' || typeof fetch !== 'function' || !window.location) return null;
+  return {
+    fetch: (...args) => fetch(...args),
+    storage: typeof localStorage !== 'undefined' ? localStorage : null,
+    setTimeout: (cb, ms) => setTimeout(cb, ms),
+    clearTimeout: (h) => clearTimeout(h as ReturnType<typeof setTimeout>),
+    setInterval: (cb, ms) => setInterval(cb, ms),
+    clearInterval: (h) => clearInterval(h as ReturnType<typeof setInterval>),
+    now: () => Date.now(),
+    location: window.location,
+    isVisible: () => typeof document === 'undefined' || !document.hidden,
+    onWake: (cb) => {
+      if (typeof window.addEventListener === 'function') window.addEventListener('focus', cb);
+      if (typeof document !== 'undefined' && typeof document.addEventListener === 'function') {
+        document.addEventListener('visibilitychange', () => { if (!document.hidden) cb(); });
+      }
+    },
+  };
+}
+
+const alive = <T extends { deleted_at?: number | null }>(r: T): boolean => r.deleted_at == null;
 const byName = (a: { name: string }, b: { name: string }) => a.name.localeCompare(b.name, 'es');
 
 export class MemorySource implements DataSource {
-  private s: Store = {
-    households: [],
-    homes: [],
-    floors: [],
-    rooms: [],
-    containers: [],
-    items: [],
-    tags: [],
-    itemTags: [],
-  };
+  private s: Store = emptyStore();
   private hydrated = false;
-  private syncTimer: ReturnType<typeof setTimeout> | null = null;
-  private syncVersion = 0;
-  private syncing = false;
-  private syncFailed = false;
+  private listeners = new Set<() => void>();
+  /** Sincronización con el ordenador (null fuera del navegador). */
+  sync: ServerSync | null = null;
+
+  constructor(private env: SyncEnv | null = browserEnv()) {}
 
   async ready(): Promise<void> {
     if (this.hydrated) return;
     this.hydrate();
-    await this.getDefaultHousehold();
     this.hydrated = true;
-    if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
-      window.addEventListener('focus', () => { if (this.syncFailed) this.scheduleFaustusSync(); });
+    if (this.env) {
+      this.sync = new ServerSync(
+        {
+          tables: () => this.s as unknown as Tables,
+          apply: (remote) => this.applyRemote(remote),
+          resetTo: (remote) => {
+            this.s = migrateStore(remote as unknown as Store);
+            this.save();
+            this.emit();
+          },
+          hasOnlyExample: () => onlyExampleItems(this.s.items) && this.s.homes.filter(alive).length <= 1,
+        },
+        this.env
+      );
+      // Espera un poco a que el ordenador conteste para pintar ya su casa; si tarda, sigue en segundo plano.
+      await Promise.race([this.sync.start(), new Promise((resolve) => setTimeout(resolve, 3000))]);
     }
-    if (typeof document !== 'undefined' && typeof document.addEventListener === 'function') {
-      document.addEventListener('visibilitychange', () => {
-        if (!document.hidden && this.syncFailed) this.scheduleFaustusSync();
-      });
+    await this.getDefaultHousehold();
+  }
+
+  /** Avisa a la interfaz de cambios que llegan del ordenador (Faustus, otra pestaña…). */
+  subscribe(listener: () => void): () => void {
+    this.listeners.add(listener);
+    return () => this.listeners.delete(listener);
+  }
+
+  private emit(): void {
+    for (const l of this.listeners) l();
+  }
+
+  private applyRemote(remote: Partial<Tables>): number {
+    const changed = mergeInto(this.s as unknown as Tables, remote as Record<string, unknown[]>);
+    if (changed) {
+      this.s = migrateStore(this.s);
+      this.save();
+      this.emit();
     }
-    this.scheduleFaustusSync();
+    return changed;
   }
 
   private hydrate(): void {
     try {
       if (typeof localStorage !== 'undefined') {
         const raw = localStorage.getItem(STORAGE_KEY);
-        if (raw) this.s = { ...this.s, ...JSON.parse(raw) };
-        // Migración: objetos guardados antes de que existiera `favorite`.
-        this.s.items = this.s.items.map((i) => ({ ...i, favorite: i.favorite ?? 0 }));
+        if (raw) this.s = migrateStore(JSON.parse(raw));
       }
     } catch {
       // ignora almacenamiento corrupto / no disponible
     }
   }
 
+  private save(): void {
+    try {
+      if (typeof localStorage !== 'undefined') localStorage.setItem(STORAGE_KEY, JSON.stringify(this.s));
+    } catch {
+      // ignora cuota / no disponible: el ordenador conserva la casa cuando hay conexión
+    }
+  }
+
   private persist(): void {
-    try {
-      if (typeof localStorage !== 'undefined') {
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(this.s));
-        this.scheduleFaustusSync();
-      }
-    } catch {
-      // ignora cuota / no disponible
-    }
-  }
-
-  private scheduleFaustusSync(): void {
-    if (typeof window === 'undefined' || !['127.0.0.1', 'localhost'].includes(window.location.hostname)) return;
-    try {
-      if (localStorage.getItem(FAUSTUS_AUTO_KEY) !== '1') return;
-    } catch {
-      return;
-    }
-    this.syncVersion += 1;
-    if (this.syncTimer) clearTimeout(this.syncTimer);
-    this.syncTimer = setTimeout(() => { void this.flushFaustusSync(); }, 400);
-  }
-
-  private async flushFaustusSync(): Promise<void> {
-    if (this.syncing) return;
-    this.syncing = true;
-    try {
-      let sentVersion: number;
-      do {
-        sentVersion = this.syncVersion;
-        const bundle = await this.exportAll();
-        if (hasExampleItems(bundle.data.items)) return;
-        const items = bundle.data.items.map((item) => ({ ...item, photo_uri: null }));
-        try {
-          const response = await fetch('http://127.0.0.1:5196/api/import', {
-            method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ ...bundle, data: { ...bundle.data, items } }),
-          });
-          if (!response.ok) { this.syncFailed = true; return; }
-          this.syncFailed = false;
-        } catch {
-          // The local bridge may be closed. Returning to the app retries; the manual button reports errors.
-          this.syncFailed = true;
-          return;
-        }
-      } while (sentVersion !== this.syncVersion);
-    } finally {
-      this.syncing = false;
-    }
+    this.save();
+    this.sync?.schedulePush();
   }
 
   async isEmpty(): Promise<boolean> {
@@ -247,7 +282,7 @@ export class MemorySource implements DataSource {
     const container = item.container_id
       ? this.s.containers.find((c) => c.id === item.container_id)
       : null;
-    const tagIds = this.s.itemTags.filter((it) => it.item_id === item.id).map((it) => it.tag_id);
+    const tagIds = this.s.itemTags.filter((it) => alive(it) && it.item_id === item.id).map((it) => it.tag_id);
     const tags = this.s.tags.filter((t) => alive(t) && tagIds.includes(t.id)).sort(byName);
     return {
       ...item,
@@ -327,7 +362,7 @@ export class MemorySource implements DataSource {
     const wantTags = tagIds && tagIds.length ? new Set(tagIds) : null;
     const candidates = this.s.items.filter(alive).filter((item) => {
       if (!wantTags) return true;
-      const itemTagIds = this.s.itemTags.filter((it) => it.item_id === item.id).map((it) => it.tag_id);
+      const itemTagIds = this.s.itemTags.filter((it) => alive(it) && it.item_id === item.id).map((it) => it.tag_id);
       return itemTagIds.some((id) => wantTags.has(id));
     });
     return rankSearch(candidates.map((i) => this.decorate(i)), query);
@@ -361,20 +396,41 @@ export class MemorySource implements DataSource {
   async deleteTag(tagId: ID): Promise<void> {
     const tag = this.s.tags.find((t) => t.id === tagId);
     if (!tag) return;
-    this.s.itemTags = this.s.itemTags.filter((it) => it.tag_id !== tagId);
-    tag.deleted_at = now();
+    const t0 = now();
+    for (const link of this.s.itemTags) {
+      if (link.tag_id === tagId && alive(link)) {
+        link.deleted_at = t0;
+        link.updated_at = t0;
+      }
+    }
+    tag.deleted_at = t0;
     tag.updated_at = tag.deleted_at;
     this.persist();
   }
 
   async getItemTags(itemId: ID): Promise<Tag[]> {
-    const ids = this.s.itemTags.filter((it) => it.item_id === itemId).map((it) => it.tag_id);
+    const ids = this.s.itemTags.filter((it) => alive(it) && it.item_id === itemId).map((it) => it.tag_id);
     return this.s.tags.filter((t) => alive(t) && ids.includes(t.id)).sort(byName);
   }
 
+  /** Vínculos con lápida: quitar una etiqueta también viaja al ordenador. */
   private setItemTags(itemId: ID, tagIds: ID[]): void {
-    this.s.itemTags = this.s.itemTags.filter((it) => it.item_id !== itemId);
-    for (const tagId of tagIds) this.s.itemTags.push({ item_id: itemId, tag_id: tagId });
+    const t = now();
+    const wanted = new Set(tagIds);
+    for (const link of this.s.itemTags) {
+      if (link.item_id !== itemId) continue;
+      if (wanted.has(link.tag_id)) {
+        if (!alive(link)) {
+          link.deleted_at = null;
+          link.updated_at = t;
+        }
+        wanted.delete(link.tag_id);
+      } else if (alive(link)) {
+        link.deleted_at = t;
+        link.updated_at = t;
+      }
+    }
+    for (const tagId of wanted) this.s.itemTags.push({ id: linkId(itemId, tagId), item_id: itemId, tag_id: tagId, created_at: t, updated_at: t, deleted_at: null });
   }
 
   // Mutaciones de objetos
@@ -638,11 +694,112 @@ export class MemorySource implements DataSource {
     };
   }
 
+  // Ficha del objeto
+  async getItemDetails(itemId: ID): Promise<ItemDetails | null> {
+    return this.s.item_details.find((d) => d.id === itemId && alive(d)) ?? null;
+  }
+
+  async saveItemDetails(itemId: ID, patch: ItemDetailsInput): Promise<ItemDetails> {
+    const t = now();
+    let row = this.s.item_details.find((d) => d.id === itemId);
+    if (!row) {
+      row = { ...emptyDetails(itemId), created_at: t, updated_at: t };
+      this.s.item_details.push(row);
+    }
+    Object.assign(row, cleanDetails(patch), { deleted_at: null, updated_at: Math.max(t, row.updated_at + 1) });
+    if (patch.warranty_until !== undefined && patch.warranty_source === undefined) row.warranty_source = row.warranty_until ? 'manual' : null;
+    this.persist();
+    return { ...row };
+  }
+
+  // Mantenimiento
+  private targetOf(kind: MaintenanceTarget, id: ID): { name: string | null; path: string | null } {
+    const room = (rid: ID | null | undefined) => this.s.rooms.find((r) => r.id === rid && alive(r));
+    if (kind === 'item') {
+      const item = this.s.items.find((i) => i.id === id && alive(i));
+      if (!item) return { name: null, path: null };
+      const chain: string[] = [];
+      let cid = item.container_id;
+      const guard = new Set<ID>();
+      while (cid && !guard.has(cid)) {
+        guard.add(cid);
+        const c = this.s.containers.find((x) => x.id === cid);
+        if (!c) break;
+        chain.unshift(c.name);
+        cid = c.parent_container_id;
+      }
+      return { name: item.name, path: [room(item.room_id)?.name, ...chain].filter(Boolean).join(' › ') };
+    }
+    if (kind === 'container') {
+      const c = this.s.containers.find((x) => x.id === id && alive(x));
+      return { name: c?.name ?? null, path: c ? [room(c.room_id)?.name, c.name].filter(Boolean).join(' › ') : null };
+    }
+    if (kind === 'room') {
+      const r = room(id);
+      return { name: r?.name ?? null, path: r?.name ?? null };
+    }
+    const h = this.s.homes.find((x) => x.id === id && alive(x));
+    return { name: h?.name ?? null, path: h?.name ?? null };
+  }
+
+  async listMaintenance(filter?: { target_kind?: MaintenanceTarget; target_id?: ID }): Promise<MaintenanceWithTarget[]> {
+    return this.s.maintenance_tasks
+      .filter((m) => alive(m) && (!filter?.target_kind || m.target_kind === filter.target_kind) && (!filter?.target_id || m.target_id === filter.target_id))
+      .map((m) => ({ ...m, ...(({ name, path }) => ({ targetName: name, targetPath: path }))(this.targetOf(m.target_kind, m.target_id)) }))
+      .sort((a, b) => (a.next_due ?? '9999').localeCompare(b.next_due ?? '9999') || a.title.localeCompare(b.title, 'es'));
+  }
+
+  async getMaintenance(taskId: ID): Promise<MaintenanceTask | null> {
+    return this.s.maintenance_tasks.find((m) => m.id === taskId && alive(m)) ?? null;
+  }
+
+  async addMaintenance(input: NewMaintenanceInput): Promise<MaintenanceTask> {
+    const t = now();
+    const task: MaintenanceTask = newTask(input, t);
+    this.s.maintenance_tasks.push(task);
+    this.persist();
+    return { ...task };
+  }
+
+  async updateMaintenance(taskId: ID, patch: UpdateMaintenanceInput): Promise<MaintenanceTask | null> {
+    const task = this.s.maintenance_tasks.find((m) => m.id === taskId);
+    if (!task) return null;
+    applyTaskPatch(task, patch, now());
+    this.persist();
+    return { ...task };
+  }
+
+  async deleteMaintenance(taskId: ID): Promise<void> {
+    const task = this.s.maintenance_tasks.find((m) => m.id === taskId);
+    if (!task) return;
+    task.deleted_at = now();
+    task.updated_at = Math.max(task.deleted_at, task.updated_at + 1);
+    this.persist();
+  }
+
+  async markMaintenanceDone(taskId: ID, entry: { done_at?: number; note?: string | null; cost?: number | null; who?: string | null } = {}): Promise<MaintenanceTask | null> {
+    const task = this.s.maintenance_tasks.find((m) => m.id === taskId && alive(m));
+    if (!task) return null;
+    const t = now();
+    const doneAt = entry.done_at ?? t;
+    this.s.maintenance_log.push({ id: newId(), task_id: taskId, done_at: doneAt, note: entry.note ?? null, cost: entry.cost ?? null, who: entry.who ?? null, created_at: t, updated_at: t, deleted_at: null });
+    task.last_done_at = Math.max(doneAt, task.last_done_at ?? 0);
+    task.next_due_manual = 0;
+    task.next_due = computeNextDue(task, t);
+    task.updated_at = Math.max(t, task.updated_at + 1);
+    this.persist();
+    return { ...task };
+  }
+
+  async listMaintenanceLog(taskId: ID): Promise<MaintenanceLog[]> {
+    return this.s.maintenance_log.filter((l) => l.task_id === taskId && alive(l)).sort((a, b) => b.done_at - a.done_at);
+  }
+
   // Backup local
   async exportAll(): Promise<ExportBundle> {
     return {
       format: 'homehoard-export',
-      version: 1,
+      version: 3,
       exported_at: now(),
       data: {
         households: [...this.s.households],
@@ -653,23 +810,24 @@ export class MemorySource implements DataSource {
         items: [...this.s.items],
         tags: [...this.s.tags],
         itemTags: [...this.s.itemTags],
+        item_details: [...this.s.item_details],
+        maintenance_tasks: [...this.s.maintenance_tasks],
+        maintenance_log: [...this.s.maintenance_log],
       },
     };
   }
 
   async importAll(bundle: ExportBundle): Promise<void> {
     if (bundle.format !== 'homehoard-export') throw new Error('Archivo no reconocido');
-    const d = bundle.data;
-    const next = {
-      households: d.households ?? [],
-      homes: d.homes ?? [],
-      floors: d.floors ?? [],
-      rooms: d.rooms ?? [],
-      containers: d.containers ?? [],
-      items: (d.items ?? []).map((i) => ({ ...i, favorite: i.favorite ?? 0 })),
-      tags: d.tags ?? [],
-      itemTags: d.itemTags ?? [],
-    };
+    const { tables } = recordsFromBundle(bundle);
+    if (this.sync?.active) {
+      // Con el ordenador, una copia se combina (gana el cambio más reciente) en lugar de sustituir la casa.
+      mergeInto(this.s as unknown as Tables, tables as unknown as Record<string, unknown[]>);
+      this.s = migrateStore(this.s);
+      this.persist();
+      return;
+    }
+    const next = migrateStore(tables as unknown as Store);
     // Do not report a restored backup when the browser cannot keep it.
     if (typeof localStorage !== 'undefined') {
       try {
@@ -679,6 +837,20 @@ export class MemorySource implements DataSource {
       }
     }
     this.s = next;
-    this.scheduleFaustusSync();
+    this.sync?.schedulePush();
+  }
+
+  /** Vacía la casa (casa de ejemplo): con lápidas, para que también se borre en el ordenador. */
+  async clearAll(): Promise<void> {
+    const t = now();
+    for (const table of ['homes', 'floors', 'rooms', 'containers', 'items', 'tags', 'itemTags', 'item_details', 'maintenance_tasks', 'maintenance_log'] as const) {
+      for (const row of this.s[table] as unknown as AnyRecord[]) {
+        if (row.deleted_at == null) {
+          row.deleted_at = t;
+          row.updated_at = Math.max(t, Number(row.updated_at) + 1);
+        }
+      }
+    }
+    this.persist();
   }
 }

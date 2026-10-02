@@ -68,6 +68,31 @@ CREATE TABLE IF NOT EXISTS item_tag (
   PRIMARY KEY (item_id, tag_id)
 );
 
+-- Ficha del aparato u objeto (una por objeto; id = item_id). Listas como JSON en texto.
+CREATE TABLE IF NOT EXISTS item_details (
+  id TEXT PRIMARY KEY, item_id TEXT NOT NULL,
+  brand TEXT, model TEXT, serial TEXT, purchase_date TEXT, store TEXT, price REAL,
+  warranty_until TEXT, warranty_source TEXT, kafka_doc_ids TEXT NOT NULL DEFAULT '[]', manual_url TEXT,
+  consumables TEXT NOT NULL DEFAULT '[]', notes TEXT,
+  created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, deleted_at INTEGER
+);
+
+-- Mantenimiento: tareas sobre un objeto, mueble, habitación o vivienda, y su historial.
+CREATE TABLE IF NOT EXISTS maintenance_task (
+  id TEXT PRIMARY KEY, target_kind TEXT NOT NULL, target_id TEXT NOT NULL, title TEXT NOT NULL,
+  every_days INTEGER, every_months INTEGER, anchor_month INTEGER, last_done_at INTEGER,
+  next_due TEXT, next_due_manual INTEGER NOT NULL DEFAULT 0, notes TEXT,
+  basis TEXT NOT NULL DEFAULT 'advice', legal_ref TEXT, template_id TEXT, kafka_deadline_id TEXT,
+  paused INTEGER NOT NULL DEFAULT 0,
+  created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, deleted_at INTEGER
+);
+CREATE TABLE IF NOT EXISTS maintenance_log (
+  id TEXT PRIMARY KEY, task_id TEXT NOT NULL, done_at INTEGER NOT NULL, note TEXT, cost REAL, who TEXT,
+  created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, deleted_at INTEGER
+);
+CREATE INDEX IF NOT EXISTS idx_mtask_target ON maintenance_task(target_kind, target_id);
+CREATE INDEX IF NOT EXISTS idx_mlog_task ON maintenance_log(task_id);
+
 -- Nota: la búsqueda v0 usa LIKE (rápido para inventarios personales). FTS5 queda
 -- como optimización futura (ver spec §6).
 
@@ -85,4 +110,11 @@ CREATE INDEX IF NOT EXISTS idx_floor_home       ON floor(home_id);
  */
 export const MIGRATIONS: string[] = [
   `ALTER TABLE item ADD COLUMN favorite INTEGER NOT NULL DEFAULT 0`,
+  // 0.3: vínculos objeto–etiqueta con id determinista, fecha y lápida (para sincronizar y exportar en versión 3).
+  `ALTER TABLE item_tag ADD COLUMN id TEXT`,
+  `ALTER TABLE item_tag ADD COLUMN created_at INTEGER`,
+  `ALTER TABLE item_tag ADD COLUMN updated_at INTEGER`,
+  `ALTER TABLE item_tag ADD COLUMN deleted_at INTEGER`,
+  `UPDATE item_tag SET id = item_id || ':' || tag_id WHERE id IS NULL`,
+  `UPDATE item_tag SET updated_at = COALESCE((SELECT updated_at FROM item WHERE item.id = item_tag.item_id), 0) WHERE updated_at IS NULL`,
 ];

@@ -97,6 +97,110 @@ export interface Tag {
   deleted_at: Millis | null;
 }
 
+// Vínculo objeto–etiqueta. Su id es determinista (`<item_id>:<tag_id>`) para que el mismo vínculo hecho en dos
+// dispositivos sea un único registro; al quitar una etiqueta queda una lápida (deleted_at) que también se sincroniza.
+export interface ItemTag {
+  id: string;
+  item_id: ID;
+  tag_id: ID;
+  created_at?: Millis | null;
+  updated_at: Millis;
+  deleted_at: Millis | null;
+}
+
+// Ficha de aparato u objeto (una por objeto; su id es el del objeto).
+export interface Consumable {
+  name: string; // "Filtro de la campana"
+  spec: string | null; // "3x", "CR2032 ×2"
+  qty: number | null;
+  last_bought: string | null; // YYYY-MM-DD
+}
+
+export interface ItemDetails {
+  id: ID; // = item_id
+  item_id: ID;
+  brand: string | null;
+  model: string | null;
+  serial: string | null;
+  purchase_date: string | null; // YYYY-MM-DD
+  store: string | null;
+  price: number | null;
+  warranty_until: string | null; // YYYY-MM-DD
+  warranty_source: 'manual' | 'kafka' | null;
+  kafka_doc_ids: string[]; // documentos de Kafka's Hoard (factura, garantía, manual…)
+  manual_url: string | null;
+  consumables: Consumable[];
+  notes: string | null;
+  created_at: Millis;
+  updated_at: Millis;
+  deleted_at: Millis | null;
+}
+
+export type ItemDetailsInput = Partial<Omit<ItemDetails, 'id' | 'item_id' | 'created_at' | 'updated_at' | 'deleted_at'>>;
+
+// Mantenimiento
+export type MaintenanceTarget = 'item' | 'container' | 'room' | 'home';
+export type MaintenanceBasis = 'law' | 'maker' | 'advice';
+
+export interface MaintenanceTask {
+  id: ID;
+  target_kind: MaintenanceTarget;
+  target_id: ID;
+  title: string;
+  every_days: number | null;
+  every_months: number | null;
+  anchor_month: number | null; // 1–12: mes en el que debe caer (p. ej. 10 = octubre)
+  last_done_at: Millis | null;
+  next_due: string | null; // YYYY-MM-DD (calculada salvo next_due_manual)
+  next_due_manual: number; // 0 | 1
+  notes: string | null;
+  basis: MaintenanceBasis;
+  legal_ref: string | null;
+  template_id: string | null;
+  kafka_deadline_id: string | null; // lo rellena el ordenador al reflejar la tarea en Kafka
+  paused: number; // 0 | 1
+  created_at: Millis;
+  updated_at: Millis;
+  deleted_at: Millis | null;
+}
+
+export interface MaintenanceLog {
+  id: ID;
+  task_id: ID;
+  done_at: Millis;
+  note: string | null;
+  cost: number | null;
+  who: string | null;
+  created_at: Millis;
+  updated_at: Millis;
+  deleted_at: Millis | null;
+}
+
+export interface NewMaintenanceInput {
+  target_kind: MaintenanceTarget;
+  target_id: ID;
+  title: string;
+  every_days?: number | null;
+  every_months?: number | null;
+  anchor_month?: number | null;
+  last_done_at?: Millis | null;
+  next_due?: string | null; // fijada a mano
+  notes?: string | null;
+  basis?: MaintenanceBasis;
+  legal_ref?: string | null;
+  template_id?: string | null;
+}
+
+export type UpdateMaintenanceInput = Partial<Omit<NewMaintenanceInput, 'target_kind' | 'target_id'>> & {
+  paused?: boolean;
+  next_due?: string | null; // null = volver a la fecha calculada
+};
+
+export interface MaintenanceWithTarget extends MaintenanceTask {
+  targetName: string | null;
+  targetPath: string | null;
+}
+
 // Tipos derivados / de vista
 export type PathKind = 'home' | 'floor' | 'room' | 'container';
 
@@ -140,10 +244,11 @@ export interface Stats {
   favorites: number;
 }
 
-// Backup local. La version 2 incluye las fotos dentro del JSON portable.
+// Backup local. La version 2 incluye las fotos dentro del JSON portable; la 3 añade fichas, mantenimiento y
+// vínculos de etiquetas con id, fecha y lápida. Las versiones 1 y 2 siguen pudiéndose importar.
 export interface ExportBundle {
   format: 'homehoard-export';
-  version: 1 | 2;
+  version: 1 | 2 | 3;
   exported_at: Millis;
   photos?: Record<ID, string>; // item id -> data:image/...;base64,...
   data: {
@@ -154,7 +259,10 @@ export interface ExportBundle {
     containers: Container[];
     items: Item[];
     tags: Tag[];
-    itemTags: { item_id: ID; tag_id: ID }[];
+    itemTags: (ItemTag | { item_id: ID; tag_id: ID })[];
+    item_details?: ItemDetails[];
+    maintenance_tasks?: MaintenanceTask[];
+    maintenance_log?: MaintenanceLog[];
   };
 }
 
@@ -261,7 +369,22 @@ export interface DataSource {
   countItemsByRoom(floorId: ID): Promise<RoomItemCount[]>;
   getStats(): Promise<Stats>;
 
+  // Ficha del objeto
+  getItemDetails(itemId: ID): Promise<ItemDetails | null>;
+  saveItemDetails(itemId: ID, patch: ItemDetailsInput): Promise<ItemDetails>;
+
+  // Mantenimiento
+  listMaintenance(filter?: { target_kind?: MaintenanceTarget; target_id?: ID }): Promise<MaintenanceWithTarget[]>;
+  getMaintenance(taskId: ID): Promise<MaintenanceTask | null>;
+  addMaintenance(input: NewMaintenanceInput): Promise<MaintenanceTask>;
+  updateMaintenance(taskId: ID, patch: UpdateMaintenanceInput): Promise<MaintenanceTask | null>;
+  deleteMaintenance(taskId: ID): Promise<void>;
+  markMaintenanceDone(taskId: ID, entry?: { done_at?: Millis; note?: string | null; cost?: number | null; who?: string | null }): Promise<MaintenanceTask | null>;
+  listMaintenanceLog(taskId: ID): Promise<MaintenanceLog[]>;
+
   // Backup local
   exportAll(): Promise<ExportBundle>;
   importAll(bundle: ExportBundle): Promise<void>;
+  /** Vacía la casa con lápidas (para empezar de cero sin dejar registros vivos en otros dispositivos). */
+  clearAll(): Promise<void>;
 }
