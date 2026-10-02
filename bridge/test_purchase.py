@@ -212,6 +212,16 @@ class AgendaTest(unittest.TestCase):
         self.assertTrue(body["ok"])
         self.assertEqual([i["id"] for i in body["items"]], [f"homehoard:maintenance:{task['id']}"])
         self.assertEqual(body["items"][0]["kind"], "maintenance")
+        self.assertEqual(body["items"][0]["dedupe_key"], f"homehoard:{task['id']}", "the same key Kafka's mirror files the deadline under")
+
+    def test_every_task_carries_a_distinct_dedupe_key_equal_to_the_mirror_key(self):
+        from homehoard_server import kafka as K
+        a = self.call("maintenance_add", template_id="purgar-radiadores", target_kind="home")["task"]
+        b = self.call("maintenance_add", template_id="caldera-gas", target="caldera", last_done="2020-01-01")["task"]
+        body = AG.answer(lambda: self.app.ctx, "2026-10-01", "2026-12-31", "")
+        keys = {i["id"]: i["dedupe_key"] for i in body["items"]}
+        self.assertEqual(keys, {f"homehoard:maintenance:{t['id']}": f"{K.SOURCE}:{t['id']}" for t in (a, b)})
+        self.assertEqual(len(set(keys.values())), 2)
 
 
 class ManifestTest(unittest.TestCase):

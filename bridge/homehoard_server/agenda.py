@@ -10,6 +10,10 @@ from typing import Any, Callable, Optional
 
 from . import maintenance as MT
 from . import tools as T
+from .hoard_link import fam_agenda
+from .kafka import SOURCE as KAFKA_SOURCE
+
+ID_PREFIX = "homehoard:maintenance:"
 
 
 def build_items(ctx: T.Ctx, date_from: date, date_to: date) -> list[dict[str, Any]]:
@@ -44,3 +48,19 @@ def make_provider(get_ctx: Callable[[], Optional[T.Ctx]]) -> Callable[[date, dat
         ctx = get_ctx()
         return build_items(ctx, date_from, date_to) if ctx is not None else []
     return provider
+
+
+def dedupe_key(task_id: str) -> str:
+    """The key the maintenance task has in Kafka's Hoard (``source:external_key`` of the deadline the mirror files for it), so the
+    hub's Today can show the task once when both agendas list it."""
+    return f"{KAFKA_SOURCE}:{task_id}"
+
+
+def answer(get_ctx: Callable[[], Optional[T.Ctx]], date_from: Any = None, date_to: Any = None, sphere: str = "") -> dict[str, Any]:
+    """The body of ``GET /api/family/agenda``: the library's answer with a ``dedupe_key`` on every task (the library's normaliser
+    keeps only the contract's own fields, so the key is added to what it returns)."""
+    body = fam_agenda.answer(make_provider(get_ctx), date_from, date_to, sphere)
+    for item in body.get("items") or []:
+        if str(item.get("id", "")).startswith(ID_PREFIX):
+            item["dedupe_key"] = dedupe_key(item["id"][len(ID_PREFIX):])
+    return body

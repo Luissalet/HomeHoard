@@ -19,7 +19,7 @@ from . import APP_ID, SERVICE, VERSION
 from . import config as C
 from . import tools as T
 from . import agenda as AG
-from .hoard_link import fam_agenda, family, fam_refs
+from .hoard_link import family, fam_refs
 from .hoard_link.atomic import write_text_atomic
 from .hoard_link.tokens import check_bearer, read_or_create_token, write_url
 from .kafka import KafkaLink, KafkaMirror
@@ -315,7 +315,7 @@ def make_handler(app: App) -> type[BaseHTTPRequestHandler]:
                         return
                     q = parse_qs(url.query)
                     one = lambda key: (q.get(key) or [""])[0]  # noqa: E731
-                    self._json(200, fam_agenda.answer(AG.make_provider(lambda: app.ctx), one("from") or None, one("to") or None, one("sphere")))
+                    self._json(200, AG.answer(lambda: app.ctx, one("from") or None, one("to") or None, one("sphere")))
                 elif path == "/api/agent/tools":
                     self._json(200, {"app": APP_ID, "tools": T.catalog(), "instructions": T.INSTRUCTIONS})
                 elif path == "/api/settings":
