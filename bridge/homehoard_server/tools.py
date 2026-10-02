@@ -13,7 +13,7 @@ import inventory
 
 from . import maintenance as MT
 from .bundle import link_id
-from .family_link import refs_link
+from .hoard_link import fam_refs
 from .kafka import KafkaLink, KafkaMirror
 
 INSTRUCTIONS = """HomeHoard keeps the user's home on this computer: homes, floors, rooms, furniture (containers nested inside each other), objects with tags, an appliance card per object (brand, model, serial, purchase, warranty, spare parts, linked papers in Kafka's Hoard) and maintenance tasks with their legal basis or advice.
@@ -786,7 +786,7 @@ def t_item_add_from_purchase(ctx: Ctx, a: dict[str, Any]) -> dict[str, Any]:
     if source_ref:
         if ctx.announced:
             ctx.announced(item["id"], source_ref)
-        link = ctx.refs or refs_link
+        link = ctx.refs or fam_refs.link
         ctx.spawn(lambda: link(f"hoard://homehoard/item/{item['id']}", source_ref, "from_purchase", from_label=name))
     out = {"ok": True, "status": "created", "item_id": item["id"], "url": ctx.item_url(item["id"]),
            "item": _item_out(ctx, ctx.store.get("items", item["id"])), "placed": how}

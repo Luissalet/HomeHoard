@@ -2,11 +2,9 @@
 from __future__ import annotations
 
 import base64
-import hmac
 import json
 import mimetypes
 import re
-import secrets
 import threading
 import time
 import uuid
@@ -21,10 +19,12 @@ from . import APP_ID, SERVICE, VERSION
 from . import config as C
 from . import tools as T
 from . import agenda as AG
-from .family_link import IMPORT_ERROR, agenda_answer, family, refs_link
+from .hoard_link import fam_agenda, family, fam_refs
+from .hoard_link.atomic import write_text_atomic
+from .hoard_link.tokens import check_bearer, read_or_create_token, write_url
 from .kafka import KafkaLink, KafkaMirror
 from .pages import IMPORT_PAGE, NO_WEB_PAGE
-from .store import HomeStore, _atomic_write
+from .store import HomeStore
 
 LOCAL_HOSTS = ("localhost", "127.0.0.1", "[::1]")
 SAFE_METHODS = ("GET", "HEAD", "OPTIONS")
@@ -89,23 +89,11 @@ class App:
         self.ctx = T.Ctx(self.store, self.kafka, self.mirror, clock, self.emit, app_url=f"http://127.0.0.1:{self.port}")
         self.lock_announced = threading.Lock()
         self.ctx.announced = self._mark_announced
-        self.token = self._token()
+        self.token = read_or_create_token(self.paths.token)
         self.store.listeners.append(self._changed)
         self._kafka_probe: tuple[float, dict[str, Any]] = (0.0, {})
 
     # ---------------------------------------------------------------- setup
-    def _token(self) -> str:
-        path = self.paths.token
-        try:
-            token = path.read_text(encoding="utf-8-sig").strip()
-            if token:
-                return token
-        except OSError:
-            pass
-        token = secrets.token_urlsafe(32)
-        _atomic_write(path, token)
-        return token
-
     def settings(self) -> dict[str, Any]:
         try:
             values = json.loads(self.paths.settings.read_text(encoding="utf-8"))
@@ -122,7 +110,7 @@ class App:
                 current[key] = value
             else:
                 raise T.ToolError("invalid", f"Ajuste desconocido: {key}.")
-        _atomic_write(self.paths.settings, json.dumps(current, ensure_ascii=False))
+        write_text_atomic(self.paths.settings, json.dumps(current, ensure_ascii=False))
         if self.mirror:
             self.mirror.wake()
         return current
@@ -139,7 +127,7 @@ class App:
             sent = self._announced()
             if f"{item_id}|{ref}" not in sent:
                 sent.add(f"{item_id}|{ref}")
-                _atomic_write(self.paths.announced, json.dumps(sorted(sent)))
+                write_text_atomic(self.paths.announced, json.dumps(sorted(sent)))
 
     def _announce_purchases(self, ids: list[str]) -> None:
         """An object the web form filed from a purchase (its card carries ``source_ref``) is announced once, like the tool does:
@@ -155,7 +143,7 @@ class App:
                 continue
             self._mark_announced(item_id, ref)
             self.emit("homehoard.item.created", {"item_id": item_id, "source_ref": ref})
-            self.ctx.spawn(lambda i=item_id, r=ref, n=item.get("name") or "": (self.ctx.refs or refs_link)(f"hoard://homehoard/item/{i}", r, "from_purchase", from_label=n))
+            self.ctx.spawn(lambda i=item_id, r=ref, n=item.get("name") or "": (self.ctx.refs or fam_refs.link)(f"hoard://homehoard/item/{i}", r, "from_purchase", from_label=n))
 
     def _changed(self, event: dict[str, Any]) -> None:
         changed = event.get("changed") or {}
@@ -179,8 +167,7 @@ class App:
     # ---------------------------------------------------------------- views
     def health(self) -> dict[str, Any]:
         return {"service": SERVICE, "app": APP_ID, "version": VERSION, "ok": True, **inventory.status(), "store": self.store.info(),
-                "web": (self.web / "index.html").is_file(), "hoard_link": family.health_block(),
-                **({"hoard_link_error": IMPORT_ERROR} if IMPORT_ERROR else {})}
+                "web": (self.web / "index.html").is_file(), "hoard_link": family.health_block()}
 
     def kafka_status(self, force: bool = False) -> dict[str, Any]:
         at, cached = self._kafka_probe
@@ -288,9 +275,7 @@ def make_handler(app: App) -> type[BaseHTTPRequestHandler]:
                 raise T.ToolError("invalid", "El cuerpo no es JSON válido.") from exc
 
         def _bearer_ok(self) -> bool:
-            header = self.headers.get("Authorization", "")
-            given = header[7:].strip() if header.lower().startswith("bearer ") else ""
-            return bool(given) and hmac.compare_digest(given, app.token)
+            return check_bearer(self.headers.get("Authorization", ""), app.token)
 
         # ------------------------------------------------------------ verbs
         def do_OPTIONS(self) -> None:
@@ -330,7 +315,7 @@ def make_handler(app: App) -> type[BaseHTTPRequestHandler]:
                         return
                     q = parse_qs(url.query)
                     one = lambda key: (q.get(key) or [""])[0]  # noqa: E731
-                    self._json(200, agenda_answer(AG.make_provider(lambda: app.ctx), one("from") or None, one("to") or None, one("sphere")))
+                    self._json(200, fam_agenda.answer(AG.make_provider(lambda: app.ctx), one("from") or None, one("to") or None, one("sphere")))
                 elif path == "/api/agent/tools":
                     self._json(200, {"app": APP_ID, "tools": T.catalog(), "instructions": T.INSTRUCTIONS})
                 elif path == "/api/settings":
@@ -455,7 +440,7 @@ def serve(app: Optional[App] = None, *, host: str = "127.0.0.1") -> None:
     server.daemon_threads = True
     app.start_background()
     try:
-        (app.paths.data / "url").write_text(f"http://127.0.0.1:{app.port}", encoding="utf-8")
+        write_url(app.paths.data / "url", f"http://127.0.0.1:{app.port}")
     except OSError:
         pass
     print(f"HomeHoard: http://127.0.0.1:{app.port}", flush=True)

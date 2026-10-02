@@ -66,11 +66,9 @@ def save(bundle: object) -> dict:
         records, photos, _ = records_from_bundle(bundle)
         result = _STORE.merge(records, photos, mode="import", origin="import")
         return {**status(), "applied": result["applied"], "ignored": result["ignored"], "notes": result["notes"]}
+    from homehoard_server.hoard_link.atomic import write_text_atomic
     snapshot = validate(bundle)
-    SNAPSHOT.parent.mkdir(parents=True, exist_ok=True)
-    pending = SNAPSHOT.with_suffix(".tmp")
-    pending.write_text(json.dumps(snapshot, ensure_ascii=False), encoding="utf-8")
-    pending.replace(SNAPSHOT)
+    write_text_atomic(SNAPSHOT, json.dumps(snapshot, ensure_ascii=False))
     return status()
 
 

@@ -1,0 +1,97 @@
+"""What HomeHoard takes from the family library: atomic writes and the stable token."""
+import json
+import os
+import tempfile
+import unittest
+from pathlib import Path
+
+import inventory
+from helpers_test import make_app, sample_records, tempdir
+from homehoard_server.hoard_link import atomic
+
+HERE = Path(__file__).resolve().parent
+
+
+class AtomicWritesTest(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempdir()
+        self.app, self.clock, self.kafka, self.events = make_app(self.tmp.name, mirror=False)
+
+    def tearDown(self):
+        inventory.use_store(None)
+        self.tmp.cleanup()
+
+    def test_saving_leaves_no_temp_files_and_a_valid_state(self):
+        self.app.store.merge(sample_records(1_000))
+        self.app.set_settings({"kafka_mirror": False})
+        leftovers = [p.name for p in Path(self.tmp.name).rglob("*.tmp")]
+        self.assertEqual(leftovers, [])
+        self.assertEqual(json.loads(self.app.paths.state.read_text(encoding="utf-8"))["format"], "homehoard-state")
+        self.assertEqual(json.loads(self.app.paths.settings.read_text(encoding="utf-8")), {"kafka_mirror": False})
+
+    def test_a_sharing_violation_on_the_replace_is_retried(self):
+        calls = []
+        real = os.replace
+
+        def flaky(src, dst):
+            calls.append(1)
+            if len(calls) < 3:
+                raise PermissionError(13, "in use")
+            return real(src, dst)
+
+        target = Path(self.tmp.name) / "x.json"
+        tmp = target.with_name("x.json.tmp")
+        tmp.write_text("{}", encoding="utf-8")
+        atomic.replace_with_retry(tmp, target, replace=flaky, sleep=lambda s: None)
+        self.assertEqual(len(calls), 3)
+        self.assertTrue(target.exists())
+
+    def test_a_photo_is_written_atomically_and_replaced(self):
+        data = "data:image/png;base64,iVBORw0KGgo="
+        uri = self.app.store._write_photo("torch", data)
+        self.assertTrue(uri.startswith("/photos/torch?v="))
+        photo = self.app.paths.photos / "torch.png"
+        self.assertTrue(photo.is_file())
+        self.assertEqual([p.name for p in self.app.paths.photos.glob("*.tmp")], [])
+
+    def test_the_offline_snapshot_is_written_atomically(self):
+        old = inventory.SNAPSHOT
+        inventory.use_store(None)
+        inventory.SNAPSHOT = Path(self.tmp.name) / "snap" / "faustus-inventory.json"
+        try:
+            bundle = {"format": "homehoard-export", "version": 3, "exported_at": "2026-10-02",
+                      "data": {t: [] for t in inventory.TABLES}}
+            inventory.save(bundle)
+            self.assertEqual(json.loads(inventory.SNAPSHOT.read_text(encoding="utf-8"))["format"], "homehoard-faustus-snapshot")
+            self.assertEqual([p.name for p in inventory.SNAPSHOT.parent.glob("*.tmp")], [])
+        finally:
+            inventory.SNAPSHOT = old
+
+
+class TokenTest(unittest.TestCase):
+    def test_the_token_is_created_once_and_stays_across_instances(self):
+        tmp = tempdir()
+        try:
+            first, *_ = make_app(tmp.name, mirror=False)
+            second, *_ = make_app(tmp.name, mirror=False)
+            self.assertEqual(first.token, second.token)
+            self.assertGreaterEqual(len(first.token), 32)
+            self.assertEqual(first.paths.token.read_text(encoding="utf-8").strip(), first.token)
+        finally:
+            inventory.use_store(None)
+            tmp.cleanup()
+
+    def test_an_existing_token_file_is_kept(self):
+        tmp = tempdir()
+        try:
+            (Path(tmp.name) / "data").mkdir(parents=True, exist_ok=True)
+            (Path(tmp.name) / "data" / "mcp-token").write_text("a" * 40 + "\n", encoding="utf-8")
+            app, *_ = make_app(tmp.name, mirror=False)
+            self.assertEqual(app.token, "a" * 40)
+        finally:
+            inventory.use_store(None)
+            tmp.cleanup()
+
+
+if __name__ == "__main__":
+    unittest.main()

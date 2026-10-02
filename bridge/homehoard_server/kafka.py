@@ -17,7 +17,8 @@ from pathlib import Path
 from typing import Any, Callable, Optional
 
 from . import maintenance as MT
-from .family_link import family
+from .hoard_link import family
+from .hoard_link.atomic import write_text_atomic
 
 SOURCE = "homehoard"
 DUE_GRACE_DAYS = 2     # a task that became due up to this many days ago is still announced (the app may have been off); older ones are not
@@ -28,7 +29,6 @@ REASON_TEXT = {
     "tool_missing": "Esta versión de Kafka's Hoard no tiene esa función: actualízala.",
     "kafka_outdated": "Kafka's Hoard necesita la versión 0.2 o posterior para guardar los avisos de mantenimiento.",
     "auth": "El Hub no acepta el token de HomeHoard.",
-    "hoard_link_unavailable": "Falta la biblioteca de la familia (hoard_link/httpx) en este Python.",
     "error": "Kafka devolvió un error.",
 }
 
@@ -38,8 +38,6 @@ def classify(r: dict[str, Any]) -> str:
         return "ok"
     err = str(r.get("error") or "")
     status = r.get("status")
-    if err == "hoard_link_unavailable":
-        return "hoard_link_unavailable"
     if status is None:
         return "hub_down" if "hub not reachable" in err else "app_down"
     if status == 401:
@@ -76,8 +74,7 @@ def _load_json(path: Path, default: Any) -> Any:
 
 
 def _save_json(path: Path, value: Any) -> None:
-    from .store import _atomic_write
-    _atomic_write(path, json.dumps(value, ensure_ascii=False, indent=1))
+    write_text_atomic(path, json.dumps(value, ensure_ascii=False, indent=1))
 
 
 def target_name(store: Any, task: dict[str, Any]) -> str:

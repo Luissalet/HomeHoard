@@ -9,7 +9,6 @@ import base64
 import copy
 import hashlib
 import json
-import os
 import re
 import threading
 import time
@@ -19,6 +18,7 @@ from typing import Any, Callable, Optional
 
 from .bundle import LEGACY_TABLES, TABLES, normalize
 from .config import Paths
+from .hoard_link.atomic import write_bytes_atomic, write_text_atomic
 
 STATE_FORMAT = "homehoard-state"
 SCHEMA = 3
@@ -26,16 +26,6 @@ PHOTO_DATA = re.compile(r"^data:image/(jpeg|png|webp);base64,([A-Za-z0-9+/]+={0,
 PHOTO_URL = re.compile(r"^(?:https?://(?:127\.0\.0\.1|localhost|\[::1\])(?::\d+)?)?/photos/([A-Za-z0-9_.:-]+?)(?:\.(?:jpg|png|webp))?(?:\?.*)?$")
 MAX_PHOTO_BYTES = 15_000_000
 PHOTO_EXT = {"jpeg": "jpg", "png": "png", "webp": "webp"}
-
-
-def _atomic_write(path: Path, text: str) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    pending = path.with_name(path.name + f".{os.getpid()}.{threading.get_ident()}.tmp")
-    with open(pending, "w", encoding="utf-8", newline="\n") as fh:
-        fh.write(text)
-        fh.flush()
-        os.fsync(fh.fileno())
-    os.replace(pending, path)
 
 
 def _wins(new: dict[str, Any], old: dict[str, Any]) -> bool:
@@ -79,7 +69,7 @@ class HomeStore:
         return state
 
     def _save(self) -> None:
-        _atomic_write(self.paths.state, json.dumps(self.state, ensure_ascii=False, separators=(",", ":")))
+        write_text_atomic(self.paths.state, json.dumps(self.state, ensure_ascii=False, separators=(",", ":")))
         self._write_snapshot()
 
     def _write_snapshot(self) -> None:
@@ -89,7 +79,7 @@ class HomeStore:
             item["photo_uri"] = None
         snapshot = {"format": "homehoard-faustus-snapshot", "exported_at": self.state.get("updated_at"), "data": data}
         try:
-            _atomic_write(self.paths.snapshot, json.dumps(snapshot, ensure_ascii=False))
+            write_text_atomic(self.paths.snapshot, json.dumps(snapshot, ensure_ascii=False))
         except OSError:
             pass
 
@@ -139,10 +129,7 @@ class HomeStore:
         self._drop_photo(item_id)
         ext = PHOTO_EXT[match.group(1)]
         path = self.paths.photos / f"{item_id}.{ext}"
-        self.paths.photos.mkdir(parents=True, exist_ok=True)
-        tmp = path.with_name(path.name + ".tmp")
-        tmp.write_bytes(raw)
-        os.replace(tmp, path)
+        write_bytes_atomic(path, raw)
         return f"/photos/{item_id}?v={hashlib.sha1(raw).hexdigest()[:10]}"
 
     def _drop_photo(self, item_id: str) -> None:
