@@ -1,11 +1,12 @@
 // Compiles the TypeScript sources the Node tests need into CommonJS under node_modules/.homehoard-test-*/,
 // keeping the folder layout so relative imports work. expo-crypto becomes node:crypto.
+import { fileURLToPath } from 'node:url';
 import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import path from 'node:path';
 import ts from 'typescript';
 
-const ROOT = path.resolve(new URL('../..', import.meta.url).pathname);
+const ROOT = path.resolve(fileURLToPath(new URL('../..', import.meta.url)));
 
 export function compileSources() {
   const out = mkdtempSync(path.join(ROOT, 'node_modules', '.homehoard-test-'));
