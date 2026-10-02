@@ -1,5 +1,7 @@
 # HomeHoard — Spec Técnico: Modelo de Datos, Plano 2D y UI
 
+> **Nota 0.3 (02-10-2026).** Este documento es el diseño inicial y se conserva como historia. Desde la 0.3 el ordenador guarda la casa: el servidor de HomeHoard (`bridge/`, 127.0.0.1:5196) sirve la web, combina los cambios registro a registro (gana el `updated_at` más reciente) y responde a Faustus; hay fichas de aparatos con papeles en Kafka's Hoard y tareas de mantenimiento avisadas a través de Kafka. Lo vigente está en `README.es.md`.
+
 *Miembro de la familia Hoard (WatchHoard, GamerHoard, BookHoard…), pero con un giro: **local-first, sin nada online por ahora**. Reusa el stack Hoard "muy relativamente" — la misma base de Expo/SQLite, sin Supabase, sin API, sin capa social.*
 
 **Fecha:** 15 de julio de 2026
