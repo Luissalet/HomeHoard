@@ -67,6 +67,7 @@ class ToolsTest(unittest.TestCase):
         with self.assertRaises(T.ToolError) as e:
             self.call("home_add_item", name="X", location="Sótano")
         self.assertEqual(e.exception.code, "not_found")
+        self.assertEqual(self.call("home_item_details", item="¿está en garantía la lavadora?")["item"]["id"], "washer")
         with self.assertRaises(T.ToolError) as e:
             self.call("home_update_item", item="paraguas", name="Y")
         self.assertEqual(e.exception.code, "not_found")

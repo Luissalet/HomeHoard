@@ -151,6 +151,23 @@ def _resolve_item(ctx: Ctx, ref: str) -> dict[str, Any]:
     if len(pick) == 1:
         return ctx.store.get("items", pick[0]["id"])
     if not matches:
+        # a whole question («¿está en garantía la lavadora?»): the object whose name matches most of its words
+        votes: dict[str, int] = {}
+        names: dict[str, dict[str, Any]] = {}
+        for word in inventory.terms(ref):
+            if len(word) < 3:
+                continue
+            for m in inventory.find(word, 20).get("matches") or []:
+                if word in MT.fold(m["name"]):
+                    votes[m["id"]] = votes.get(m["id"], 0) + 1
+                    names[m["id"]] = m
+        if votes:
+            top = max(votes.values())
+            best = [i for i, v in votes.items() if v == top]
+            if len(best) == 1:
+                return ctx.store.get("items", best[0])
+            matches = [names[i] for i in best]
+    if not matches:
         raise ToolError("not_found", f"No hay ningún objeto «{ref}» en HomeHoard.", "Busca con home_find_item o comprueba el nombre.")
     raise ToolError("ambiguous", f"Hay varios objetos que encajan con «{ref}».",
                     "Repite con el id: " + "; ".join(f"{m['id']} = {m['name']} ({m['location']})" for m in matches[:8]))
