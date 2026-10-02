@@ -111,6 +111,6 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 4 },
     elevation: 8,
   },
-  msg: { color: colors.text, fontSize: 14, flexShrink: 1 },
-  action: { color: colors.accent, fontSize: 14, fontWeight: '800', textTransform: 'uppercase', letterSpacing: 0.4 },
+  msg: { color: colors.bg, fontSize: 14, flexShrink: 1 },
+  action: { color: '#8FD3BB', fontSize: 14, fontWeight: '800', textTransform: 'uppercase', letterSpacing: 0.4 },
 });
