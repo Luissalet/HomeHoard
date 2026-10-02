@@ -32,7 +32,7 @@ Funciona sin cuenta ni servicios externos. **El ordenador guarda la casa**: el s
 
 ## El ordenador guarda la casa
 
-- `python bridge/server.py` (o `npm run server`, o desde Faustus/Hub) arranca el servidor en `http://127.0.0.1:5196`. Guarda todo en `data/home.json` (cada registro con `updated_at` y lápida `deleted_at`, escrituras atómicas y un `version` que crece) y las fotos como archivos en `data/photos/`.
+- `python bridge/server.py` (o `npm run server`, o desde Faustus/Hub) arranca el servidor en `http://127.0.0.1:5196`. Guarda todo en `data/home.json` (cada registro con `updated_at` y lápida `deleted_at`, escrituras atómicas con la biblioteca de la familia y un `version` que crece) y las fotos como archivos en `data/photos/`. El token (`data/mcp-token`) se crea una vez y se conserva entre arranques; `data/url` guarda la dirección.
 - `npm run build:web` exporta la web a `bridge/web/` y el servidor la sirve en `/` (con enlaces directos como `/item/<id>`). Sin exportar, `/` explica cómo hacerlo.
 - La web, servida por él o abierta en `localhost`/`127.0.0.1` mientras él responde, carga la casa de `/api/home`, guarda una copia en `localStorage`, envía cada cambio a `/api/home/sync` (agrupado, con reintentos) y pregunta `/api/home/version` cada pocos segundos para ver lo que cambie Faustus. Sin conexión aparece «Sin conexión con el ordenador» y los cambios esperan en el navegador. La primera vez que un navegador con datos antiguos encuentra el ordenador, se los envía.
 - **Combinación**: registro a registro gana el `updated_at` más reciente; en empate gana la lápida. Los vínculos objeto–etiqueta tienen id `<objeto>:<etiqueta>` y también lápidas. Las fotos pasan a archivos del ordenador. La casa de ejemplo nunca se envía; si el ordenador ya tiene una casa, la sustituye.
@@ -41,7 +41,7 @@ Funciona sin cuenta ni servicios externos. **El ordenador guarda la casa**: el s
 
 ## Consultar y cambiar la casa con Faustus
 
-`bridge/mcp_server.py` es el puente MCP por stdio: reenvía cada llamada al servidor con el token de `data/mcp-token` y lo arranca si no responde (`HOMEHOARD_BRIDGE_AUTOSTART=0` lo evita). El servidor también responde al contrato de la familia (`GET /api/agent/tools`, `POST /api/agent/call` con `Authorization: Bearer <token>`), emite eventos al bus del Hub y registra cada llamada.
+`bridge/mcp_server.py` es el puente MCP por stdio (el puente de catálogo común de la familia): reenvía cada llamada al servidor con el token de `data/mcp-token`, arranca el servidor (`python -m homehoard_server`) si no responde (`HOMEHOARD_BRIDGE_AUTOSTART=0` lo evita), renueva la lista de herramientas cuando caduca, reenvía el detalle de los errores y responde `outcome_unknown` si una escritura pierde la conexión, para que el asistente mire el estado antes de repetirla. El servidor también responde al contrato de la familia (`GET /api/agent/tools`, `POST /api/agent/call` con `Authorization: Bearer <token>`), emite eventos al bus del Hub y registra cada llamada.
 
 Herramientas (16):
 
@@ -62,11 +62,11 @@ Eventos: `homehoard.item.created {item_id, source_ref}` (cada objeto nuevo; `hom
 
 **Formulario precargado**: la dirección `#/add?name=…&source_ref=…&price=…&merchant=…&date=…&room=…&place=…` (también `warranty_ref`) abre **Añadir objeto** con el nombre puesto, la habitación y el mueble elegidos si sus nombres coinciden, el aviso «Desde una compra» y la ficha guardada con el objeto. Los valores no válidos se ignoran.
 
-**Agenda**: `GET /api/family/agenda?from&to&sphere` (token) lista las tareas de mantenimiento que vencen en el rango como elementos `kind: maintenance` de día completo; las vencidas se listan siempre (prioridad alta, igual que las legales); las pausadas y borradas no.
+**Agenda**: `GET /api/family/agenda?from&to&sphere` (token) lista las tareas de mantenimiento que vencen en el rango como elementos `kind: maintenance` de día completo; las vencidas se listan siempre (prioridad alta, igual que las legales); las pausadas y borradas no. Cada elemento lleva `dedupe_key: homehoard:<id de la tarea>`, la misma clave con la que el espejo de Kafka guarda ese plazo, para que un hub pueda mostrar la tarea una sola vez.
 
 ## Arranque
 
-Requisitos: Node 18+ para la app; Python 3.11+ para el servidor (solo biblioteca estándar; `pip install -r bridge/requirements.txt` añade `httpx` para la conexión con la familia y `mcp` para el puente de Faustus).
+Requisitos: Node 18+ para la app; Python 3.11+ para el servidor (solo biblioteca estándar, incluida la biblioteca de la familia copiada; `pip install -r bridge/requirements.txt` añade `mcp` para el puente de Faustus y, opcionalmente, `httpx`).
 
 ```bash
 cd HomeHoard
@@ -97,7 +97,7 @@ Reusa el stack Hoard (Expo + React Native + expo-router + TypeScript), sin la mi
   - **Nativo (iOS/Android):** `SqliteSource` sobre **expo-sqlite** en el dispositivo → `src/db/index.ts`.
   - **Web:** `MemorySource` en memoria, persistida en `localStorage` y sincronizada con el ordenador (`src/db/serverSync.ts`) → `src/db/index.web.ts`.
   - Reglas comunes: `src/db/records.ts` (tablas, combinación y copias 1/2/3), `src/db/mutations.ts` (ficha y mantenimiento) y `src/features/maintenanceCore.ts` (próxima fecha, grupos, sugerencias), las mismas que el servidor; `tests/maintenance-cases.json` las comprueba en los dos lados.
-- **Servidor:** `bridge/server.py` y `bridge/homehoard_server/` (Python estándar): `store.py` (casa y fotos), `bundle.py` (copias), `tools.py` (herramientas), `kafka.py` (papeles y avisos por Kafka a través del Hub), `maintenance.py`, `app.py` (HTTP y guardia local). `bridge/homehoard_server/hoard_link/` es la biblioteca de la familia, copiada tal cual. Plantillas en `shared/maintenance-templates.json`.
+- **Servidor:** `bridge/server.py` y `bridge/homehoard_server/` (Python estándar): `store.py` (casa y fotos), `bundle.py` (copias), `tools.py` (herramientas), `kafka.py` (papeles y avisos por Kafka a través del Hub), `maintenance.py`, `app.py` (HTTP y guardia local), `agenda.py` (agenda de la familia). `bridge/homehoard_server/hoard_link/` es la biblioteca de la familia, copiada tal cual. Plantillas en `shared/maintenance-templates.json`.
   - Así expo-sqlite nunca entra en el bundle web (donde da problemas), como en WatchHoard.
 - **Plano 2D:** `src/plan/FloorPlanView.tsx` con **react-native-svg** (idéntico en móvil y web), con modo edición (drag + resize con PanResponder, snap a rejilla).
 - **Búsqueda:** `src/db/searchUtil.ts` — normalización sin acentos y ranking por relevancia, compartido por ambas fuentes de datos.

@@ -27,7 +27,7 @@ A **fully local home inventory**. Record where things live and find them by name
 
 ## The computer holds the home
 
-- `python bridge/server.py` (or `npm run server`, or from Faustus / the hub) serves `http://127.0.0.1:5196`. State lives in `data/home.json` (every record with `updated_at` and a `deleted_at` tombstone, atomic writes, a growing `version`); photos are files in `data/photos/`.
+- `python bridge/server.py` (or `npm run server`, or from Faustus / the hub) serves `http://127.0.0.1:5196`. State lives in `data/home.json` (every record with `updated_at` and a `deleted_at` tombstone, atomic writes through the family library, a growing `version`); photos are files in `data/photos/`. The access token (`data/mcp-token`) is created once and kept across restarts; `data/url` records the address.
 - `npm run build:web` exports the web app into `bridge/web/`, served at `/` with deep links. Without the export, `/` explains how to build it.
 - The web app (served by the server, or on `localhost`/`127.0.0.1` while the server answers) loads `/api/home`, keeps `localStorage` as an offline copy, pushes changes to `/api/home/sync` (debounced, retried) and polls `/api/home/version` every few seconds to pick up changes made by Faustus. Offline it shows «Sin conexión con el ordenador»; edits wait in the browser. A browser with older local data uploads it the first time it finds the computer.
 - **Merge rule**: per record, the newest `updated_at` wins; a tombstone wins a tie. Item-tag links have id `<item>:<tag>` and tombstones too. Photos become server files. The example house is never sent.
@@ -36,7 +36,7 @@ A **fully local home inventory**. Record where things live and find them by name
 
 ## Faustus and the family
 
-`bridge/mcp_server.py` is the stdio MCP bridge: it proxies every call to the server with the token in `data/mcp-token` and starts the server when needed (`HOMEHOARD_BRIDGE_AUTOSTART=0` disables that). The server answers the family contract (`GET /api/agent/tools`, `POST /api/agent/call` with `Authorization: Bearer <token>`), emits events on the hub's bus and records each call.
+`bridge/mcp_server.py` is the stdio MCP bridge (the family's shared catalogue bridge): it proxies every call to the server with the token in `data/mcp-token`, starts the server (`python -m homehoard_server`) when needed (`HOMEHOARD_BRIDGE_AUTOSTART=0` disables that), refreshes the tool list when it goes stale, forwards the app's error details and answers `outcome_unknown` when a write loses its connection, so the assistant reads the state before repeating it. The server answers the family contract (`GET /api/agent/tools`, `POST /api/agent/call` with `Authorization: Bearer <token>`), emits events on the hub's bus and records each call.
 
 Tools (16): `home_find_item`, `home_list_location`, `home_inventory_status`, `home_add_item`, `item_add_from_purchase`, `home_update_item`, `home_move_item`, `home_item_details`, `home_item_papers`, `home_manual_search`, `maintenance_list`, `maintenance_add`, `maintenance_done`, `maintenance_update`, `maintenance_delete` (`confirm=true`), `maintenance_templates`. Writes return the new state. Papers, manuals and reminders reach Kafka's Hoard through the hub (`family.call`) and say plainly when the hub or Kafka is not available.
 
@@ -46,11 +46,11 @@ Events: `homehoard.item.created {item_id, source_ref}` (every new object; `homeh
 
 **Prefilled form**: the address `#/add?name=…&source_ref=…&price=…&merchant=…&date=…&room=…&place=…` (also `warranty_ref`) opens **Añadir objeto** with the name filled in, the room and furniture chosen when their names match, a «Desde una compra» note, and the card saved with the object. Invalid values are ignored.
 
-**Agenda**: `GET /api/family/agenda?from&to&sphere` (bearer token) lists the maintenance tasks that are due in the window as `kind: maintenance` all-day items; overdue tasks are always listed (high priority, like legal ones); paused and deleted tasks are not.
+**Agenda**: `GET /api/family/agenda?from&to&sphere` (bearer token) lists the maintenance tasks that are due in the window as `kind: maintenance` all-day items; overdue tasks are always listed (high priority, like legal ones); paused and deleted tasks are not. Every item carries `dedupe_key: homehoard:<task id>`, the key Kafka's mirror files the same deadline under, so a hub can show the task once.
 
 ## Run
 
-Requires Node.js 18 or newer for the app and Python 3.11+ for the server (standard library; `pip install -r bridge/requirements.txt` adds `httpx` for the family link and `mcp` for the Faustus bridge).
+Requires Node.js 18 or newer for the app and Python 3.11+ for the server (standard library only, including the vendored family library; `pip install -r bridge/requirements.txt` adds `mcp` for the Faustus bridge and optionally `httpx`).
 
 ```sh
 npm install
