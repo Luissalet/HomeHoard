@@ -1,12 +1,15 @@
-"""What HomeHoard takes from the family library: atomic writes and the stable token."""
+"""What HomeHoard takes from the family library: atomic writes, the stable token, the bridge and a server that needs no httpx."""
 import json
 import os
+import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
 
 import inventory
 from helpers_test import make_app, sample_records, tempdir
+from homehoard_server import config as C
 from homehoard_server.hoard_link import atomic
 
 HERE = Path(__file__).resolve().parent
@@ -91,6 +94,35 @@ class TokenTest(unittest.TestCase):
         finally:
             inventory.use_store(None)
             tmp.cleanup()
+
+
+class BridgeTest(unittest.TestCase):
+    def test_the_bridge_is_the_family_catalog_bridge_for_this_app(self):
+        import mcp_server
+        bridge = mcp_server.make_bridge()
+        self.assertEqual(bridge.service, "homehoard-bridge")
+        self.assertEqual(bridge.package, "homehoard_server")
+        self.assertEqual(bridge.default_port, C.DEFAULT_PORT)
+        old = os.environ.get("HOMEHOARD_DATA_DIR")
+        try:
+            os.environ["HOMEHOARD_DATA_DIR"] = "/tmp/hh-data-test"
+            self.assertEqual(bridge.data_dir, C.data_dir())
+            os.environ.pop("HOMEHOARD_DATA_DIR")
+            self.assertEqual(bridge.data_dir, C.ROOT / "data", "the home lives in <repo>/data, not next to the bridge")
+        finally:
+            if old is not None:
+                os.environ["HOMEHOARD_DATA_DIR"] = old
+
+    def test_the_server_starts_as_a_module(self):
+        self.assertTrue((HERE / "homehoard_server" / "__main__.py").is_file())
+
+    def test_the_server_and_its_family_link_import_without_httpx(self):
+        code = ("import sys; sys.modules['httpx'] = None\n"
+                "from homehoard_server import app, agenda, kafka, store\n"
+                "from homehoard_server.hoard_link import family\n"
+                "print(sorted(family.health_block())[:1])")
+        out = subprocess.run([sys.executable, "-c", code], cwd=HERE, capture_output=True, text=True, timeout=60)
+        self.assertEqual(out.returncode, 0, out.stderr)
 
 
 if __name__ == "__main__":
