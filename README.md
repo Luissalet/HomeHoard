@@ -36,6 +36,8 @@ A **fully local home inventory**. Record where things live and find them by name
 
 ## Faustus and the family
 
+When the MCP bridge autostarts HomeHoard, a short-lived launcher exits after spawning the server. HomeHoard stays available after its stdio MCP host disconnects. This removes the parent-child process-tree link; it does not guarantee survival if an enclosing Windows Job Object terminates its processes when it closes.
+
 `bridge/mcp_server.py` is the stdio MCP bridge (the family's shared catalogue bridge): it proxies every call to the server with the token in `data/mcp-token`, starts the server (`python -m homehoard_server`) when needed (`HOMEHOARD_BRIDGE_AUTOSTART=0` disables that), refreshes the tool list when it goes stale, forwards the app's error details and answers `outcome_unknown` when a write loses its connection, so the assistant reads the state before repeating it. The server answers the family contract (`GET /api/agent/tools`, `POST /api/agent/call` with `Authorization: Bearer <token>`), emits events on the hub's bus and records each call.
 
 Tools (16): `home_find_item`, `home_list_location`, `home_inventory_status`, `home_add_item`, `item_add_from_purchase`, `home_update_item`, `home_move_item`, `home_item_details`, `home_item_papers`, `home_manual_search`, `maintenance_list`, `maintenance_add`, `maintenance_done`, `maintenance_update`, `maintenance_delete` (`confirm=true`), `maintenance_templates`. Writes return the new state. Papers, manuals and reminders reach Kafka's Hoard through the hub (`family.call`) and say plainly when the hub or Kafka is not available.

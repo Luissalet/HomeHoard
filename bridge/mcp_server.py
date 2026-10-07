@@ -1,8 +1,9 @@
 """Stdio MCP bridge for HomeHoard: the family's ``CatalogBridge`` pointed at this app.
 
 It never opens the home file: the tool list comes from ``GET /api/agent/tools`` and every call is proxied to the running server
-(``POST /api/agent/call``) with the Bearer token from ``<data>/mcp-token``. When nothing answers it starts the server
-(``python -m homehoard_server``, detached); HOMEHOARD_BRIDGE_AUTOSTART=0 turns that off. HOMEHOARD_URL, HOMEHOARD_PORT, HOMEHOARD_TOKEN,
+(``POST /api/agent/call``) with the Bearer token from ``<data>/mcp-token``. When nothing answers, a short-lived launcher starts
+``python -m homehoard_server`` and exits, so the server outlives the stdio MCP host. HOMEHOARD_BRIDGE_AUTOSTART=0 turns autostart
+off. HOMEHOARD_URL, HOMEHOARD_PORT, HOMEHOARD_TOKEN,
 HOMEHOARD_TOKEN_FILE and HOMEHOARD_DATA_DIR work as before.
 """
 from __future__ import annotations

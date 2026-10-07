@@ -5,6 +5,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+import venv
 from pathlib import Path
 
 import inventory
@@ -123,6 +124,77 @@ class BridgeTest(unittest.TestCase):
                 "print(sorted(family.health_block())[:1])")
         out = subprocess.run([sys.executable, "-c", code], cwd=HERE, capture_output=True, text=True, timeout=60)
         self.assertEqual(out.returncode, 0, out.stderr)
+
+    def test_vendored_bridge_autostart_is_not_a_child_of_its_host(self):
+        import psutil
+        from homehoard_server.hoard_link import net, proc
+
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder) / "fake app"
+            package = root / "fake_lifetime_app"
+            package.mkdir(parents=True)
+            (package / "__init__.py").write_text("", encoding="utf-8")
+            (package / "__main__.py").write_text(
+                "import http.server, json, os, sys\n"
+                "if os.environ.get('FAKE_LIFETIME_IDENTITY'):\n"
+                " from homehoard_server.hoard_link.launch import process_created\n"
+                " with open(os.environ['FAKE_LIFETIME_IDENTITY'],'w',encoding='utf-8') as f: json.dump({'pid':os.getpid(),'created':process_created(os.getpid()),'python':sys.executable,'cwd':os.getcwd()},f)\n"
+                "class H(http.server.BaseHTTPRequestHandler):\n"
+                " def do_GET(self):\n"
+                "  raw=json.dumps({'service':'fake-lifetime','pid':os.getpid(),'python':sys.executable}).encode(); self.send_response(200); self.send_header('Content-Type','application/json'); self.send_header('Content-Length',str(len(raw))); self.end_headers(); self.wfile.write(raw)\n"
+                " def log_message(self,*args): pass\n"
+                "http.server.ThreadingHTTPServer(('127.0.0.1',int(os.environ['FAKE_LIFETIME_PORT'])),H).serve_forever()\n",
+                encoding="utf-8",
+            )
+            data = root / "data"
+            port = net.free_port()
+            venv_root = root / "venv with spaces"
+            venv.EnvBuilder(with_pip=False).create(venv_root)
+            venv_python = venv_root / "Scripts" / "python.exe"
+            self.assertTrue(venv_python.is_file())
+            code = (
+                "import json, os; from homehoard_server.hoard_link.bridge import ensure_running; "
+                "ok=ensure_running('fake_lifetime_app', int(os.environ['FAKE_LIFETIME_PORT']), service='fake-lifetime', "
+                "data_dir=os.environ['FAKE_LIFETIME_DATA'], cwd=os.environ['FAKE_LIFETIME_CWD'], "
+                "port_env='FAKE_LIFETIME_PORT', wait_s=20); print(json.dumps({'ok':ok}))"
+            )
+            environment = {**os.environ, "FAKE_LIFETIME_PORT": str(port), "FAKE_LIFETIME_DATA": str(data),
+                           "FAKE_LIFETIME_CWD": str(root),
+                           "FAKE_LIFETIME_IDENTITY": str(data / "server-identity.json"),
+                           "PYTHONPATH": os.pathsep.join((str(HERE), str(root)))}
+            identity_path = data / "server-identity.json"
+            identity = None
+            pid = created = None
+            try:
+                host = subprocess.run([str(venv_python), "-c", code], cwd=root, env=environment,
+                                      capture_output=True, text=True, timeout=45)
+                self.assertEqual(host.returncode, 0, host.stderr)
+                self.assertEqual(json.loads(host.stdout.strip()), {"ok": True})
+                identity = json.loads(identity_path.read_text(encoding="utf-8"))
+                pid, created = int(identity["pid"]), float(identity["created"])
+                health = net.fetch_health(f"http://127.0.0.1:{port}/api/health", timeout=2)
+                self.assertIsNotNone(health)
+                self.assertEqual(int(health["pid"]), pid)
+                self.assertAlmostEqual(psutil.Process(pid).create_time(), created, delta=0.01)
+                self.assertEqual(Path(health["python"]).resolve(), venv_python.resolve())
+                self.assertIn("fake_lifetime_app", psutil.Process(pid).cmdline())
+                self.assertEqual(net.fetch_health(f"http://127.0.0.1:{port}/api/health", timeout=2)["pid"], pid)
+            finally:
+                if identity is None and identity_path.is_file():
+                    try:
+                        identity = json.loads(identity_path.read_text(encoding="utf-8"))
+                        pid, created = int(identity["pid"]), float(identity["created"])
+                    except (OSError, ValueError, KeyError, TypeError):
+                        identity = None
+                if pid is not None and created is not None and proc.pid_alive(pid):
+                    try:
+                        current = psutil.Process(pid)
+                        if (abs(current.create_time() - created) <= 0.01 and Path(current.cwd()).resolve() == root.resolve()
+                                and "fake_lifetime_app" in current.cmdline() and identity
+                                and Path(identity["python"]).resolve() == venv_python.resolve()):
+                            proc.kill_tree(pid, grace_s=0)
+                    except psutil.Error:
+                        pass
 
 
 if __name__ == "__main__":

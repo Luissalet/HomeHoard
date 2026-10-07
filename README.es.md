@@ -41,6 +41,8 @@ Funciona sin cuenta ni servicios externos. **El ordenador guarda la casa**: el s
 
 ## Consultar y cambiar la casa con Faustus
 
+Cuando el puente MCP arranca HomeHoard, un lanzador de vida breve inicia el servidor y sale. HomeHoard sigue disponible tras desconectar su host MCP por stdio. Así se elimina el vínculo de descendencia con el host; no garantiza sobrevivir si un Job Object de Windows que lo contiene termina sus procesos al cerrarse.
+
 `bridge/mcp_server.py` es el puente MCP por stdio (el puente de catálogo común de la familia): reenvía cada llamada al servidor con el token de `data/mcp-token`, arranca el servidor (`python -m homehoard_server`) si no responde (`HOMEHOARD_BRIDGE_AUTOSTART=0` lo evita), renueva la lista de herramientas cuando caduca, reenvía el detalle de los errores y responde `outcome_unknown` si una escritura pierde la conexión, para que el asistente mire el estado antes de repetirla. El servidor también responde al contrato de la familia (`GET /api/agent/tools`, `POST /api/agent/call` con `Authorization: Bearer <token>`), emite eventos al bus del Hub y registra cada llamada.
 
 Herramientas (16):
