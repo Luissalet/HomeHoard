@@ -7,6 +7,8 @@
     "household-inventory",
     "item-location",
     "local-search",
+    "packing-list-check",
+    "reusable-packing-kits",
     "appliance-card",
     "warranty",
     "maintenance",
@@ -15,7 +17,8 @@
     "papers-link",
     "purchase-intake",
     "family-agenda",
-    "prefilled-add-form"
+    "prefilled-add-form",
+    "warranty-overview"
   ],
   "placeholders": [
     "HOMEHOARD_DIR",

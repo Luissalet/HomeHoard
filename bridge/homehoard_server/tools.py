@@ -6,7 +6,7 @@ import re
 import threading
 import uuid
 from dataclasses import dataclass
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from typing import Any, Callable, Optional
 
 import inventory
@@ -18,6 +18,9 @@ from .kafka import KafkaLink, KafkaMirror
 
 INSTRUCTIONS = """HomeHoard keeps the user's home on this computer: homes, floors, rooms, furniture (containers nested inside each other), objects with tags, an appliance card per object (brand, model, serial, purchase, warranty, spare parts, linked papers in Kafka's Hoard) and maintenance tasks with their legal basis or advice.
 To answer «¿dónde está…?» use home_find_item; «¿qué hay en…?» home_list_location. Quote locations only from tool results; if an object is not found, say so. Write tools (home_add_item, home_update_item, home_move_item, home_item_details with set, maintenance_*) only when the user asks; deletes need confirm=true.
+To prepare a packing list or kit, find the objects first, then home_check_list with their IDs and requested quantities. Repeated IDs are added together; this checks current stock and locations, without reserving or moving anything. Missing IDs and unknown stock leave totals incomplete.
+Reusable kits: home_kits saves a named definition (full list of IDs and quantities), lists/reads it, or deletes it on request. home_check_list(kit=ID_or_name) checks that saved definition against the current inventory. Saving a kit never changes stock; identical repeated saves are unchanged.
+Use home_warranties for a dated overview of warranties approaching expiry, already expired, or unknown. It reads recorded local card dates, not current Kafka documents or inferred legal periods.
 Purchases: item_add_from_purchase files a bought thing (name, price, shop, date, warranty paper, where it came from) in a room or furniture, or in the «Por colocar» room when the place is not known. It is idempotent by source_ref and name.
 Maintenance: maintenance_list (overdue, this month, upcoming), maintenance_done, maintenance_add (from maintenance_templates or custom). Legal tasks carry their norm (RITE, RD 919/2006); the rest are advice and must be presented as such. Papers, warranties and manuals live in Kafka's Hoard: home_item_papers and home_manual_search reach it through the hub and say when it is not available."""
 
@@ -280,6 +283,112 @@ def t_list_location(ctx: Ctx, a: dict[str, Any]) -> dict[str, Any]:
         raise ToolError("invalid", str(exc)) from exc
 
 
+def _kit_requirements(requests: list[Any]) -> dict[str, int]:
+    if not 1 <= len(requests) <= 100:
+        raise ToolError("invalid", "requests debe contener entre 1 y 100 objetos {item_id, quantity}.")
+    required: dict[str, int] = {}
+    for request in requests:
+        if not isinstance(request, dict) or set(request) != {"item_id", "quantity"}:
+            raise ToolError("invalid", "Cada petición debe contener solo item_id y quantity.")
+        item_id = _arg(request, "item_id", str, required=True)
+        quantity = _arg(request, "quantity", int, required=True)
+        if quantity <= 0:
+            raise ToolError("invalid", "quantity debe ser un entero positivo; quita de la lista lo que ya no necesites.")
+        required[item_id] = required.get(item_id, 0) + quantity
+    return required
+
+
+def _kit(ctx: Ctx, ref: str, *, deleted: bool = False) -> dict[str, Any]:
+    row = ctx.store.get("packing_kits", ref)
+    if row and (deleted or row.get("deleted_at") is None):
+        return row
+    found = [r for r in ctx.store.alive("packing_kits") if MT.fold(r.get("name", "")) == MT.fold(ref)]
+    if len(found) == 1:
+        return found[0]
+    if len(found) > 1:
+        raise ToolError("ambiguous", "Hay varios kits con ese nombre; indica su id.")
+    raise ToolError("not_found", f"No existe el kit «{ref}».")
+
+
+def t_kits(ctx: Ctx, a: dict[str, Any]) -> dict[str, Any]:
+    action = _arg(a, "action", str, "list")
+    with ctx.store.lock:
+        if action == "list":
+            kits = sorted(ctx.store.alive("packing_kits"), key=lambda r: (MT.fold(r.get("name", "")), r["id"]))
+            return {"kits": [{"id": r["id"], "name": r["name"], "items": len(r["requests"]),
+                              "updated_at": r["updated_at"]} for r in kits[:50]], "total": len(kits)}
+        if action == "get":
+            return {"kit": _kit(ctx, _arg(a, "kit", str, required=True))}
+        if action == "delete":
+            if _arg(a, "confirm", bool, False) is not True:
+                raise ToolError("confirm_required", "Confirma el borrado del kit con confirm=true.")
+            row = _kit(ctx, _arg(a, "kit", str, required=True))
+            saved = ctx.store.put("packing_kits", {**row, "deleted_at": ctx.now_ms()})
+            return {"status": "deleted", "kit_id": saved["id"], "inventory_version": ctx.store.info()["version"]}
+        if action != "save":
+            raise ToolError("invalid", "action debe ser list, get, save o delete.")
+        name = _arg(a, "name", str, required=True)
+        if len(name) > 160:
+            raise ToolError("invalid", "El nombre del kit debe tener como máximo 160 caracteres.")
+        requests = _arg(a, "requests", list, required=True)
+        required = _kit_requirements(requests)
+        if any(v > 9007199254740991 for v in required.values()):
+            raise ToolError("invalid", "Las cantidades del kit superan la precisión de las copias portables.")
+        ref = _arg(a, "kit", str, "")
+        old = _kit(ctx, ref, deleted=True) if ref else None
+        matches = [r for r in ctx.store.alive("packing_kits") if MT.fold(r.get("name", "")) == MT.fold(name)]
+        if len(matches) > 1 or (old and any(r["id"] != old["id"] for r in matches)):
+            raise ToolError("ambiguous", "El nombre pertenece a otro kit; usa otro nombre o su id.")
+        old = old or (matches[0] if matches else None)
+        household = (old or {}).get("household_id") or _household(ctx)
+        rid = (old or {}).get("id") or str(uuid.uuid5(uuid.NAMESPACE_URL, f"homehoard:kit:{household}:{MT.fold(name)}"))
+        old = old or ctx.store.get("packing_kits", rid)
+        rec = {"id": rid, "household_id": household, "name": name,
+               "requests": [{"item_id": k, "quantity": v} for k, v in required.items()],
+               "notes": _arg(a, "notes", str, (old or {}).get("notes")) or None,
+               "created_at": (old or {}).get("created_at", ctx.now_ms()), "deleted_at": None}
+        if old and all(old.get(k) == v for k, v in rec.items()):
+            return {"status": "unchanged", "kit": old, "inventory_version": ctx.store.info()["version"]}
+        saved = ctx.store.put("packing_kits", rec)
+        return {"status": "updated" if old else "created", "kit": saved, "inventory_version": ctx.store.info()["version"]}
+
+
+def t_check_list(ctx: Ctx, a: dict[str, Any]) -> dict[str, Any]:
+    if (a.get("kit") is not None) == (a.get("requests") is not None):
+        raise ToolError("invalid", "Indica requests o kit, exactamente uno de los dos.")
+    kit = None
+    # Definition, stock and version all refer to one consistent snapshot.
+    with ctx.store.lock:
+        if a.get("kit") is not None:
+            kit = _kit(ctx, _arg(a, "kit", str, required=True))
+            requests = kit["requests"]
+        else:
+            requests = _arg(a, "requests", list, required=True)
+        required = _kit_requirements(requests)
+        paths = _paths(ctx)
+        version = ctx.store.info()["version"]
+    rows = []
+    for item_id, quantity in required.items():
+        item = paths["items"].get(item_id)
+        available = item.get("quantity", 1) if item else None
+        known = type(available) is int and available >= 0
+        to_pack = min(quantity, available) if known else None
+        missing = max(0, quantity - available) if known else None
+        rows.append({"item_id": item_id, "name": item.get("name") if item else None,
+                     "requested": quantity, "available": available if known else None,
+                     "to_pack": to_pack, "missing": missing,
+                     "location": _item_path(paths, item) if item else None,
+                     "status": ("not_found" if item is None else "unknown_quantity" if not known
+                                else "shortage" if missing else "available")})
+    complete = all(r["available"] is not None for r in rows)
+    return {**({"kit": {"id": kit["id"], "name": kit["name"], "updated_at": kit["updated_at"]}} if kit else {}),
+            "inventory_version": version, "ready": complete and all(r["missing"] == 0 for r in rows),
+            "totals_complete": complete, "requested_total": sum(required.values()),
+            "to_pack_total": sum(r["to_pack"] for r in rows) if complete else None,
+            "missing_total": sum(r["missing"] for r in rows) if complete else None,
+            "items": rows}
+
+
 def t_add_item(ctx: Ctx, a: dict[str, Any]) -> dict[str, Any]:
     name = _arg(a, "name", str, required=True)[:160]
     loc = _resolve_location(ctx, _arg(a, "location", str, required=True))
@@ -349,6 +458,59 @@ def warranty_of(ctx: Ctx, details: dict[str, Any]) -> Optional[dict[str, Any]]:
         return None
     left = (day - ctx.today()).days
     return {"until": day.isoformat(), "active": left >= 0, "days_left": left, "source": details.get("warranty_source") or "manual"}
+
+
+def t_warranties(ctx: Ctx, a: dict[str, Any]) -> dict[str, Any]:
+    """A dated overview of recorded cards; no remote warranty inference."""
+    days = _arg(a, 'days', int, 90)
+    status = _arg(a, 'status', str, 'expiring')
+    offset = _arg(a, 'offset', int, 0)
+    limit = _arg(a, 'limit', int, 30)
+    if not 0 <= days <= 3650 or offset < 0 or not 1 <= limit <= 100:
+        raise ToolError('invalid', 'days debe estar entre 0 y 3650; offset ≥ 0 y limit entre 1 y 100.')
+    if status not in ('expiring', 'expired', 'active', 'unknown', 'all'):
+        raise ToolError('invalid', 'status es expiring, expired, active, unknown o all.')
+    as_of = _day_arg(a, 'as_of')
+    today = date.fromisoformat(as_of) if as_of else ctx.today()
+    try:
+        window_end = today + timedelta(days=days)
+    except OverflowError:
+        raise ToolError('invalid', 'El intervalo supera el calendario válido.') from None
+    with ctx.store.lock:
+        location = _resolve_location(ctx, _arg(a, 'location', str, '')) if a.get('location') else None
+        paths = _paths(ctx)
+        version = ctx.store.info()['version']
+    details = {r['item_id']: r for r in paths['all']['item_details'] if r.get('deleted_at') is None}
+    rows = []
+    for item in paths['items'].values():
+        if location:
+            if location['kind'] == 'room' and item.get('room_id') != location['id']:
+                continue
+            if location['kind'] == 'container':
+                cid, seen = item.get('container_id'), set()
+                while cid and cid != location['id'] and cid not in seen:
+                    seen.add(cid); cid = (paths['containers'].get(cid) or {}).get('parent_container_id')
+                if cid != location['id']:
+                    continue
+        card = details.get(item['id'], {})
+        until = MT.parse_day(card.get('warranty_until'))
+        left = (until - today).days if until else None
+        state = 'unknown' if until is None else 'expired' if left < 0 else 'active'
+        rows.append({'item_id': item['id'], 'name': item['name'], 'location': _item_path(paths, item),
+                     'warranty_until': until.isoformat() if until else None, 'days_left': left,
+                     'status': state, 'source': (card.get('warranty_source') or 'manual') if until else None,
+                     'warranty_ref': card.get('warranty_ref'), 'brand': card.get('brand'), 'model': card.get('model')})
+    unknown = sum(r['status'] == 'unknown' for r in rows)
+    def selected(row: dict[str, Any]) -> bool:
+        if status == 'all': return True
+        if status == 'expiring': return row['days_left'] is not None and 0 <= row['days_left'] <= days
+        return row['status'] == status
+    matched = sorted((r for r in rows if selected(r)), key=lambda r: (r['warranty_until'] or '9999-12-31', MT.fold(r['name']), r['item_id']))
+    return {'as_of': today.isoformat(), 'window_end': window_end.isoformat(),
+            'days': days, 'status': status, 'inventory_version': version, 'checked_items': len(rows),
+            'unknown_dates': unknown, 'matched': len(matched), 'items': matched[offset:offset + limit],
+            'next_offset': offset + limit if offset + limit < len(matched) else None,
+            'basis': 'recorded_home_cards', 'kafka_queried': False}
 
 
 def _clean_consumables(value: Any) -> list[dict[str, Any]]:
@@ -816,6 +978,28 @@ TOOLS: list[Tool] = [
                                   "Use a name, full path or id. If names are ambiguous, ask which one. Paginate with offset and limit; total_items is the full count.",
                                   "¿qué hay en la caja roja?, contenido del trastero, lista lo que hay en"),
          _obj({"location": LOCATION, "offset": I("Start at", minimum=0), "limit": I("1–100", minimum=1, maximum=100)}, ("location",)), True, t_list_location),
+    Tool("home_check_list", _d("Check a packing list against current stock, with shortages and locations. Preparar equipo o un kit.",
+                               "Pass a saved kit ID/name with kit, or 1–100 {item_id, quantity} entries with requests using IDs from home_find_item or home_list_location. "
+                               "Repeated IDs are summed in first-seen order. Returns requested/available/to_pack/missing per object and inventory_version. "
+                               "Unknown or deleted IDs and invalid stored stock have null quantities, totals_complete=false and ready=false; never infer zero stock. "
+                               "Read only: nothing is reserved, moved or deducted. A repeated call checks the current inventory again.",
+                               "packing list, preparar mochila, qué me falta, lista de equipo, preparar kit, comprobar cantidades"),
+         _obj({"kit": S("Saved kit ID or exact unique name; use instead of requests."),
+               "requests": {"type": "array", "minItems": 1, "maxItems": 100,
+                             "items": _obj({"item_id": S("Exact object ID from inventory search."),
+                                            "quantity": I("Requested units, a positive integer.", minimum=1)}, ("item_id", "quantity"))}},
+              ()), True, t_check_list),
+    Tool("home_kits", _d("Save and reuse packing kits; list, read, update or delete their definitions. Guardar listas de equipo.",
+                         "action=list (default), get(kit), save(name,requests,kit optional,notes optional), delete(kit,confirm=true). "
+                         "save replaces the full list. Repeated saves of the same name reuse its ID; identical saves change nothing. "
+                         "Duplicate item IDs are summed. Stock and item locations are unchanged. Check a saved kit with home_check_list(kit). "
+                         "Definitions are backed up and synced; this is not a reservation or saved packing progress.",
+                         "saved kits, reusable checklist, packing template, guardar kit, listas reutilizables, mochila, equipo de viaje"),
+         _obj({"action": S("Operation", enum=["list", "get", "save", "delete"]), "kit": S("Kit ID or unique name"),
+               "name": S("Kit name, up to 160 characters"), "notes": S("Optional notes"), "confirm": B("Confirm delete"),
+               "requests": {"type": "array", "minItems": 1, "maxItems": 100,
+                            "items": _obj({"item_id": S("Inventory object ID"), "quantity": I("Required units", minimum=1)}, ("item_id", "quantity"))}}),
+         False, t_kits),
     Tool("home_add_item", _d("Add an object to a room or furniture (path, name or id), with quantity and tags. Guardar objeto nuevo.",
                              "Returns the new object with its full path. If the place is ambiguous nothing is written.",
                              "apunta que tengo, guarda en, añade al inventario, he metido en"),
@@ -839,6 +1023,14 @@ TOOLS: list[Tool] = [
                               "Returns where it was and where it is now.",
                               "guarda la linterna en el cajón rojo, mueve, pon en, cambia de sitio, lo he llevado a"),
          _obj({"item": ITEM, "location": LOCATION}, ("item", "location")), False, t_move_item),
+    Tool("home_warranties", _d("List recorded warranties by expiry date and location. Garantías que caducan o ya vencidas.",
+           "Uses local appliance-card dates only; does not query Kafka or infer a legal warranty period. expiring includes today through days ahead. Unknown dates are counted separately; pagination uses next_offset.",
+           "garantías, caducan, vencen, aparatos, warranty expiry, warranty overview"),
+         _obj({"days": I("Days ahead, inclusive (0–3650).", minimum=0, maximum=3650),
+               "status": S("expiring (default), expired, active, unknown or all.", enum=["expiring","expired","active","unknown","all"]),
+               "as_of": S("Reference date YYYY-MM-DD; omit for today."),
+               "location": S("Optional room or furniture ID/name/path; includes nested contents."),
+               "offset": I("Pagination offset.", minimum=0), "limit": I("Page size (1–100).", minimum=1, maximum=100)}), True, t_warranties),
     Tool("home_item_details", _d("Get or fill an appliance's card: brand, model, serial, purchase, warranty, parts. Ficha del aparato.",
                                  "Without set it reads the card; with set it saves those fields and returns the card. Warranty dates come from the "
                                  "user or from Kafka (warranty_source).",

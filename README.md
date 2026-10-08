@@ -14,6 +14,7 @@ A **fully local home inventory**. Record where things live and find them by name
 - Accent-insensitive, multiword relevance search across names, notes, tags and locations. An empty search shows favorites and recent items.
 - Quick quantity, move, favorite and delete actions; undoable deletion backed by tombstones.
 - Room and furniture views that include nested contents, inventory statistics and manageable tags.
+- **Packing lists and kits through Faustus**: compare requested quantities with recorded stock, combine repeated object IDs, and show shortages with the full locations. The check reads one inventory snapshot and changes no quantities or locations.
 - Portable JSON backup with embedded photos. Old version 1 backups remain importable; version 2 fails if a local photo cannot be included rather than silently losing it.
 - Printable QR labels for items and furniture, with an offline scanner that opens the matching record or reports that it no longer exists.
 - **Appliance card** per object: brand, model, serial number, purchase date and shop, price, warranty end (typed or taken from Kafka), manual link, consumables and spare parts (name, spec such as «CR2032 ×2», quantity, last bought) and notes. Collapsible; shows only filled fields when not editing.
@@ -31,7 +32,7 @@ A **fully local home inventory**. Record where things live and find them by name
 - `npm run build:web` exports the web app into `bridge/web/`, served at `/` with deep links. Without the export, `/` explains how to build it.
 - The web app (served by the server, or on `localhost`/`127.0.0.1` while the server answers) loads `/api/home`, keeps `localStorage` as an offline copy, pushes changes to `/api/home/sync` (debounced, retried) and polls `/api/home/version` every few seconds to pick up changes made by Faustus. Offline it shows «Sin conexión con el ordenador»; edits wait in the browser. A browser with older local data uploads it the first time it finds the computer.
 - **Merge rule**: per record, the newest `updated_at` wins; a tombstone wins a tie. Item-tag links have id `<item>:<tag>` and tombstones too. Photos become server files. The example house is never sent.
-- **Import backups** (from the phone): `http://127.0.0.1:5196/importar`, or Settings → Import in the connected web app. Versions 1, 2 and 3 are accepted and merged with the same rule; a backup without photos never deletes one.
+- **Import backups** (from the phone): `http://127.0.0.1:5196/importar`, or Settings → Import in the connected web app. Versions 1, 2, 3 and 4 are accepted and merged with the same rule; a backup without photos never deletes one.
 - **Update Faustus now** forces a sync. `data/faustus-inventory.json` (photo-free) is still written for compatibility; Faustus now reads the live home.
 
 ## Faustus and the family
@@ -40,7 +41,16 @@ When the MCP bridge autostarts HomeHoard, a short-lived launcher exits after spa
 
 `bridge/mcp_server.py` is the stdio MCP bridge (the family's shared catalogue bridge): it proxies every call to the server with the token in `data/mcp-token`, starts the server (`python -m homehoard_server`) when needed (`HOMEHOARD_BRIDGE_AUTOSTART=0` disables that), refreshes the tool list when it goes stale, forwards the app's error details and answers `outcome_unknown` when a write loses its connection, so the assistant reads the state before repeating it. The server answers the family contract (`GET /api/agent/tools`, `POST /api/agent/call` with `Authorization: Bearer <token>`), emits events on the hub's bus and records each call.
 
-Tools (16): `home_find_item`, `home_list_location`, `home_inventory_status`, `home_add_item`, `item_add_from_purchase`, `home_update_item`, `home_move_item`, `home_item_details`, `home_item_papers`, `home_manual_search`, `maintenance_list`, `maintenance_add`, `maintenance_done`, `maintenance_update`, `maintenance_delete` (`confirm=true`), `maintenance_templates`. Writes return the new state. Papers, manuals and reminders reach Kafka's Hoard through the hub (`family.call`) and say plainly when the hub or Kafka is not available.
+Tools (19): `home_check_list`, `home_kits`, `home_find_item`, `home_list_location`, `home_inventory_status`, `home_add_item`, `item_add_from_purchase`, `home_update_item`, `home_move_item`, `home_item_details`, `home_warranties`, `home_item_papers`, `home_manual_search`, `maintenance_list`, `maintenance_add`, `maintenance_done`, `maintenance_update`, `maintenance_delete` (`confirm=true`), `maintenance_templates`. Writes return the new state. Papers, manuals and reminders reach Kafka's Hoard through the hub (`family.call`) and say plainly when the hub or Kafka is not available.
+
+**Prepare a kit**: first find the objects, then call `home_check_list` with
+`requests=[{"item_id":"<id>","quantity":2}, ...]` (1–100 entries). Requests for the
+same ID are added together in first-seen order. Each result includes the recorded
+`available`, `requested`, `to_pack`, `missing`, status and full `location`.
+`ready` means all recorded quantities cover the list. The tool returns the
+`inventory_version` it checked; repeating it checks the current state again.
+Missing/deleted IDs and unknown quantities remain `null`, with
+`totals_complete=false`; they never mean zero stock. This check is a calculation and does not reserve stock. Named reusable definitions can now be saved with `home_kits`; use `home_check_list(kit=...)` to check them again. They travel in web sync and version 4 backups. Manage them through Faustus; no kit editor or packing-progress UI is implemented yet. See [examples and reference](docs/PACKING_LISTS.md).
 
 Events: `homehoard.item.created {item_id, source_ref}` (every new object; `homehoard.item.added` is still emitted by `home_add_item`), `homehoard.maintenance.done`, `homehoard.maintenance.due {task_id, title, due, url, item_id}` once per task when it becomes due (its day, or up to 2 days late if the app was off; a task whose date moves is announced again), and once a day `homehoard.maintenance.upcoming {count, tasks}` with the tasks due within 7 days.
 
@@ -81,3 +91,13 @@ python -m unittest discover -s bridge -p 'test_*.py'   # server: merge, photos, 
 ```
 
 License: AGPL-3.0-or-later.
+
+## Reusable packing kits
+
+`home_kits` saves, lists, reads and deletes named kit definitions. Saving the same name reuses its ID; identical saves change nothing. `home_check_list(kit="Weekend trip")` checks current stock and full locations, including changed quantities and missing objects. Saving a kit changes no object quantity or location. Definitions survive web sync and version 4 backups, including native SQLite import/export; the phone still transfers JSON. [Workflow and limits](docs/PACKING_LISTS.md#reusable-kits).
+
+## Warranty overview through Faustus
+
+`home_warranties` lists recorded local warranty dates by status (`expiring`, `expired`, `active`, `unknown`, or `all`), optional room/furniture, and reference date. Expiring includes today through `days` ahead (default 90). Results are sorted by end date and include the full location, days left, and recorded source. Nested furniture is included; pagination returns `next_offset`. Missing or invalid dates are counted separately. This reads appliance cards without querying Kafka, changing inventory or inferring a legal warranty term; a date previously copied from Kafka remains the locally recorded date.
+
+Example: `home_warranties(as_of="2026-10-06", days=14, location="Cocina")`. To list dates already passed, use `status="expired"`.

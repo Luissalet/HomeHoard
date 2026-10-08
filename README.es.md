@@ -18,6 +18,7 @@ Funciona sin cuenta ni servicios externos. **El ordenador guarda la casa**: el s
 - **Acciones rápidas**: mantén pulsado cualquier objeto (o toca ⋯) para cambiar cantidad, moverlo, marcarlo favorito o eliminarlo sin salir de la pantalla.
 - **Eliminar con deshacer**: los borrados muestran un aviso con "Deshacer" (tombstones, nada se pierde por un despiste).
 - **Ver todo** lo que hay en una habitación o en un mueble (incluyendo lo anidado).
+- **Listas de equipo y kits con Faustus**: compara lo solicitado con las cantidades del inventario, suma las peticiones repetidas del mismo objeto y muestra lo que falta y dónde recogerlo. Consulta una instantánea del inventario sin cambiar cantidades ni ubicaciones.
 - **Crear con tipo e icono**: habitaciones (tipo + color) y muebles (tipo) desde sheets visuales; editar y borrar con seguridad (un mueble borrado deja sus objetos sueltos en la habitación; una habitación solo se borra si está vacía).
 - **Etiquetas gestionables**: renombra, cambia el color o borra desde Ajustes.
 - **Estadísticas** del inventario y **copia de seguridad**: exporta/importa todo como JSON portable, con las fotos incrustadas (local, sin nube). Las copias antiguas sin fotos siguen siendo importables.
@@ -36,7 +37,7 @@ Funciona sin cuenta ni servicios externos. **El ordenador guarda la casa**: el s
 - `npm run build:web` exporta la web a `bridge/web/` y el servidor la sirve en `/` (con enlaces directos como `/item/<id>`). Sin exportar, `/` explica cómo hacerlo.
 - La web, servida por él o abierta en `localhost`/`127.0.0.1` mientras él responde, carga la casa de `/api/home`, guarda una copia en `localStorage`, envía cada cambio a `/api/home/sync` (agrupado, con reintentos) y pregunta `/api/home/version` cada pocos segundos para ver lo que cambie Faustus. Sin conexión aparece «Sin conexión con el ordenador» y los cambios esperan en el navegador. La primera vez que un navegador con datos antiguos encuentra el ordenador, se los envía.
 - **Combinación**: registro a registro gana el `updated_at` más reciente; en empate gana la lápida. Los vínculos objeto–etiqueta tienen id `<objeto>:<etiqueta>` y también lápidas. Las fotos pasan a archivos del ordenador. La casa de ejemplo nunca se envía; si el ordenador ya tiene una casa, la sustituye.
-- **Importar copias** (por ejemplo, del móvil): `http://127.0.0.1:5196/importar`, o **Ajustes → Importar copia** en la web conectada. Se aceptan las versiones 1, 2 y 3 y se combinan con la misma regla; una copia sin fotos nunca borra las del ordenador.
+- **Importar copias** (por ejemplo, del móvil): `http://127.0.0.1:5196/importar`, o **Ajustes → Importar copia** en la web conectada. Se aceptan las versiones 1, 2, 3 y 4 y se combinan con la misma regla; una copia sin fotos nunca borra las del ordenador.
 - **Actualizar Faustus ahora** fuerza la sincronización y dice cuántos objetos tiene el ordenador. `data/faustus-inventory.json` (sin fotos) se sigue escribiendo por compatibilidad, pero Faustus ya lee la casa en vivo.
 
 ## Consultar y cambiar la casa con Faustus
@@ -45,13 +46,16 @@ Cuando el puente MCP arranca HomeHoard, un lanzador de vida breve inicia el serv
 
 `bridge/mcp_server.py` es el puente MCP por stdio (el puente de catálogo común de la familia): reenvía cada llamada al servidor con el token de `data/mcp-token`, arranca el servidor (`python -m homehoard_server`) si no responde (`HOMEHOARD_BRIDGE_AUTOSTART=0` lo evita), renueva la lista de herramientas cuando caduca, reenvía el detalle de los errores y responde `outcome_unknown` si una escritura pierde la conexión, para que el asistente mire el estado antes de repetirla. El servidor también responde al contrato de la familia (`GET /api/agent/tools`, `POST /api/agent/call` con `Authorization: Bearer <token>`), emite eventos al bus del Hub y registra cada llamada.
 
-Herramientas (16):
+Herramientas (19):
 
 - `home_find_item` — «¿dónde está la linterna?»: busca por nombre, etiqueta, nota o ubicación, con erratas, y devuelve la ruta completa. Si no está, lo dice.
 - `home_list_location` — «¿qué hay en la caja roja?»: todo lo de una habitación, mueble o caja, anidado incluido, paginado; si el nombre es ambiguo pide la ruta o el id.
 - `home_inventory_status` — si el ordenador tiene la casa, cuántos objetos, último cambio y tareas vencidas.
+- `home_check_list` — preparar una mochila, equipo o kit con `requests=[{"item_id":"<id>","quantity":2}, ...]` (1–100 entradas). Busca primero los IDs; suma repeticiones y devuelve solicitado, disponible, para recoger, faltante y ubicación. `ready` indica que las cantidades registradas cubren la lista. Devuelve la versión consultada; repetirlo consulta de nuevo las existencias actuales. IDs ausentes o borrados y cantidades desconocidas tienen valores `null` y `totals_complete=false`: no se interpretan como cero. Es una comprobación sin reservas; guarda plantillas con `home_kits` y compruébalas con `home_check_list(kit=...)`. [Ejemplos y referencia](docs/PACKING_LISTS.md).
+- `home_kits` — guardar, listar, leer, corregir o borrar plantillas de equipo reutilizables. Las listas se conservan en copias y sincronización; no cambian existencias.
 - `item_add_from_purchase` — registra algo que se ha comprado (nombre, precio, tienda, fecha, papel de garantía, origen) y lo coloca; sin sitio va a la habitación «Por colocar».
 - `home_add_item`, `home_update_item`, `home_move_item` — «guarda la linterna en el cajón rojo»: alta, cambios (nombre, cantidad, nota, sitio, etiquetas, favorito) y mover. Devuelven el estado nuevo.
+- `home_warranties` — garantías registradas por vencimiento, fecha y ubicación.
 - `home_item_details` — leer o rellenar la ficha (`set`).
 - `home_item_papers` — «¿está en garantía la lavadora?»: papeles vinculados en Kafka y la garantía con su base y cita.
 - `home_manual_search` — «¿qué significa el error E21?»: busca en los manuales vinculados, con página.
@@ -137,12 +141,22 @@ python -m unittest discover -s bridge -p "test_*.py"   # servidor: combinación,
 ## Notas y límites
 
 - **Web** guarda su copia en `localStorage`; la casa de verdad está en el ordenador. La cámara solo está en móvil; en web se usa la galería.
-- **Móvil**: sigue siendo solo local (SQLite) y pasa sus datos al ordenador con la copia JSON (versión 3 con fichas y mantenimiento). Papeles, manual y avisos por Kafka necesitan el ordenador; en el móvil la ficha lo dice. El servidor solo escucha en `127.0.0.1`, así que el móvil no se sincroniza solo.
+- **Móvil**: sigue siendo solo local (SQLite) y pasa sus datos al ordenador con la copia JSON (versión 4 con fichas, mantenimiento y kits). Papeles, manual y avisos por Kafka necesitan el ordenador; en el móvil la ficha lo dice. El servidor solo escucha en `127.0.0.1`, así que el móvil no se sincroniza solo.
 - **Kafka**: los papeles, la garantía de Kafka, el manual y los avisos necesitan el Hoard Hub y Kafka's Hoard 0.2 o posterior; si falta alguno, HomeHoard lo dice y el resto funciona. Si alguien cambia o cierra el plazo en Kafka, ese cambio se queda en Kafka (el título, los avisos o la fecha que edites allí ganan hasta la siguiente ocurrencia), pero no vuelve a HomeHoard.
 - En un empate exacto de `updated_at` entre dos dispositivos con contenido distinto, cada lado conserva el suyo (salvo lápidas); es improbable con marcas en milisegundos.
 - La búsqueda se ejecuta en memoria sobre los datos ya decorados (`src/db/searchUtil.ts`): normaliza acentos, puntúa por relevancia (nombre > etiqueta > nota > ubicación) y es instantánea para inventarios personales. FTS5 queda como optimización si algún día hay decenas de miles de objetos.
-- La **copia de seguridad JSON** (versión 3; antes 2) incluye las fotos en base64. Si una foto local falta, la exportación falla en vez de producir una copia incompleta. Las copias versión 1 se pueden importar, pero sus URI originales podrían no existir en otro dispositivo.
+- La **copia de seguridad JSON** (versión 4; antes 1–3) incluye las fotos en base64. Si una foto local falta, la exportación falla en vez de producir una copia incompleta. Las copias versión 1 se pueden importar, pero sus URI originales podrían no existir en otro dispositivo.
 
 ## Licencia
 
 AGPL-3.0-or-later (como el resto de la familia Hoard).
+
+## Kits de equipo reutilizables
+
+`home_kits` guarda, lista, lee y borra definiciones de kits con nombre. Guardar el mismo nombre reutiliza su ID; una lista idéntica no cambia nada. `home_check_list(kit="Viaje")` comprueba las existencias y ubicaciones actuales, incluidas cantidades cambiadas y objetos que faltan. Guardar un kit no cambia cantidades ni ubicaciones. Las definiciones se conservan en la sincronización web y en copias versión 4, también al importar/exportar desde SQLite nativo; el móvil sigue intercambiando JSON. Se gestionan desde Faustus, sin editor de kits ni marcas de preparación en la interfaz. [Uso y límites](docs/PACKING_LISTS.md#reusable-kits).
+
+## Vista de garantías desde Faustus
+
+`home_warranties` lista las fechas de garantía registradas según estado (`expiring`, `expired`, `active`, `unknown`, `all`), habitación o mueble y fecha de referencia opcionales. Las próximas incluyen hoy y los siguientes `days` días (90 por defecto). Devuelve ubicación completa, fecha, días restantes y fuente registrada, ordenados por vencimiento. Incluye muebles anidados y pagina con `next_offset`. Cuenta aparte las fechas ausentes o inválidas. Lee las fichas sin consultar Kafka, cambiar el inventario ni inferir un plazo legal; una fecha copiada de Kafka sigue siendo la fecha guardada localmente.
+
+Ejemplo: `home_warranties(as_of="2026-10-06", days=14, location="Cocina")`. Para fechas ya pasadas, usa `status="expired"`.

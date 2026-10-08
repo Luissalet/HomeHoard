@@ -20,14 +20,14 @@ class ToolsTest(unittest.TestCase):
         names = [t["name"] for t in T.catalog()]
         for old in ("home_find_item", "home_inventory_status", "home_list_location"):
             self.assertIn(old, names)
-        self.assertEqual(len(names), 16)
+        self.assertEqual(len(names), 19)
         for t in T.catalog():
             first = t["description"].splitlines()[0]
             self.assertLessEqual(len(first), 110, t["name"])
             self.assertIn("Sinónimos:", t["description"], t["name"])
             self.assertEqual(t["inputSchema"]["type"], "object")
         read_only = {t["name"] for t in T.catalog() if t["annotations"]["readOnlyHint"]}
-        self.assertEqual(read_only, {"home_find_item", "home_inventory_status", "home_list_location", "home_item_papers", "home_manual_search",
+        self.assertEqual(read_only, {"home_warranties", "home_find_item", "home_inventory_status", "home_list_location", "home_check_list", "home_item_papers", "home_manual_search",
                                      "maintenance_list", "maintenance_templates"})
 
     def test_existing_tools_read_the_live_home(self):
