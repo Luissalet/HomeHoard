@@ -247,10 +247,21 @@ export interface Stats {
 }
 
 // Backup local. La version 2 incluye las fotos dentro del JSON portable; la 3 añade fichas, mantenimiento y
-// vínculos de etiquetas con id, fecha y lápida. Las versiones 1 y 2 siguen pudiéndose importar.
+// vínculos de etiquetas con id, fecha y lápida; la 4 añade kits. Las versiones 1–3 siguen pudiéndose importar.
+export interface PackingKit {
+  id: ID;
+  household_id: ID;
+  name: string;
+  requests: { item_id: ID; quantity: number }[];
+  notes: string | null;
+  created_at: Millis;
+  updated_at: Millis;
+  deleted_at: Millis | null;
+}
+
 export interface ExportBundle {
   format: 'homehoard-export';
-  version: 1 | 2 | 3;
+  version: 1 | 2 | 3 | 4;
   exported_at: Millis;
   photos?: Record<ID, string>; // item id -> data:image/...;base64,...
   data: {
@@ -265,6 +276,7 @@ export interface ExportBundle {
     item_details?: ItemDetails[];
     maintenance_tasks?: MaintenanceTask[];
     maintenance_log?: MaintenanceLog[];
+    packing_kits?: PackingKit[];
   };
 }
 

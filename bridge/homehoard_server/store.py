@@ -21,7 +21,7 @@ from .config import Paths
 from .hoard_link.atomic import write_bytes_atomic, write_text_atomic
 
 STATE_FORMAT = "homehoard-state"
-SCHEMA = 3
+SCHEMA = 4
 PHOTO_DATA = re.compile(r"^data:image/(jpeg|png|webp);base64,([A-Za-z0-9+/]+={0,2})$")
 PHOTO_URL = re.compile(r"^(?:https?://(?:127\.0\.0\.1|localhost|\[::1\])(?::\d+)?)?/photos/([A-Za-z0-9_.:-]+?)(?:\.(?:jpg|png|webp))?(?:\?.*)?$")
 MAX_PHOTO_BYTES = 15_000_000

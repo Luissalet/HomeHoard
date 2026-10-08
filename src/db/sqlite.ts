@@ -22,6 +22,7 @@ import type {
   ItemTag,
   ItemWithLocation,
   MaintenanceLog,
+  PackingKit,
   MaintenanceTarget,
   MaintenanceTask,
   MaintenanceWithTarget,
@@ -43,6 +44,7 @@ const TASK_COLS = ['id', 'target_kind', 'target_id', 'title', 'every_days', 'eve
 const DETAIL_COLS = ['id', 'item_id', 'brand', 'model', 'serial', 'purchase_date', 'store', 'price', 'warranty_until', 'warranty_source',
   'kafka_doc_ids', 'manual_url', 'consumables', 'notes', 'source_ref', 'warranty_ref', 'created_at', 'updated_at', 'deleted_at'] as const;
 const LOG_COLS = ['id', 'task_id', 'done_at', 'note', 'cost', 'who', 'created_at', 'updated_at', 'deleted_at'] as const;
+const KIT_COLS = ['id', 'household_id', 'name', 'requests', 'notes', 'created_at', 'updated_at', 'deleted_at'] as const;
 
 type Row = Record<string, unknown>;
 const bind = (v: unknown): SQLite.SQLiteBindValue => (v === undefined ? null : Array.isArray(v) ? JSON.stringify(v) : (v as SQLite.SQLiteBindValue));
@@ -777,7 +779,7 @@ export class SqliteSource implements DataSource {
 
   async clearAll(): Promise<void> {
     const t = now();
-    for (const table of ['home', 'floor', 'room', 'container', 'item', 'tag', 'item_tag', 'item_details', 'maintenance_task', 'maintenance_log']) {
+    for (const table of ['home', 'floor', 'room', 'container', 'item', 'tag', 'item_tag', 'item_details', 'maintenance_task', 'maintenance_log', 'packing_kit']) {
       await this.d.runAsync(`UPDATE ${table} SET deleted_at = ?, updated_at = ? WHERE deleted_at IS NULL`, [t, t]);
     }
   }
@@ -786,7 +788,7 @@ export class SqliteSource implements DataSource {
   async exportAll(): Promise<ExportBundle> {
     return {
       format: 'homehoard-export',
-      version: 3,
+      version: 4,
       exported_at: now(),
       data: {
         households: await this.d.getAllAsync<Household>('SELECT * FROM household'),
@@ -800,6 +802,8 @@ export class SqliteSource implements DataSource {
         item_details: (await this.d.getAllAsync<Row>('SELECT * FROM item_details')).map((r) => detailsRow(r)!),
         maintenance_tasks: await this.d.getAllAsync<MaintenanceTask>('SELECT * FROM maintenance_task'),
         maintenance_log: await this.d.getAllAsync<MaintenanceLog>('SELECT * FROM maintenance_log'),
+        packing_kits: (await this.d.getAllAsync<Row>('SELECT * FROM packing_kit')).map((r) =>
+          ({ ...r, requests: parseList(r.requests) } as unknown as PackingKit)),
       },
     };
   }
@@ -809,7 +813,7 @@ export class SqliteSource implements DataSource {
     const d = recordsFromBundle(bundle).tables as unknown as ExportBundle['data'] & { itemTags: ItemTag[] };
     await this.d.execAsync('BEGIN');
     try {
-      for (const table of ['item_tag', 'item_photo', 'maintenance_log', 'maintenance_task', 'item_details', 'item', 'container', 'room', 'floor', 'home', 'tag', 'member', 'household']) {
+      for (const table of ['item_tag', 'item_photo', 'packing_kit', 'maintenance_log', 'maintenance_task', 'item_details', 'item', 'container', 'room', 'floor', 'home', 'tag', 'member', 'household']) {
         await this.d.execAsync(`DELETE FROM ${table}`);
       }
       for (const r of d.households) {
@@ -840,6 +844,7 @@ export class SqliteSource implements DataSource {
       for (const r of d.item_details ?? []) await this.upsert('item_details', DETAIL_COLS, r as unknown as Row);
       for (const r of d.maintenance_tasks ?? []) await this.upsert('maintenance_task', TASK_COLS, r as unknown as Row);
       for (const r of d.maintenance_log ?? []) await this.upsert('maintenance_log', LOG_COLS, r as unknown as Row);
+      for (const r of d.packing_kits ?? []) await this.upsert('packing_kit', KIT_COLS, r as unknown as Row);
       await this.d.execAsync('COMMIT');
     } catch (e) {
       await this.d.execAsync('ROLLBACK');

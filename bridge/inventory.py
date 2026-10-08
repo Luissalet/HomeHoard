@@ -46,7 +46,7 @@ def one_edit(a: str, b: str) -> bool:
 
 
 def validate(bundle: object) -> dict:
-    if not isinstance(bundle, dict) or bundle.get("format") != "homehoard-export" or bundle.get("version") not in (1, 2, 3):
+    if not isinstance(bundle, dict) or bundle.get("format") != "homehoard-export" or bundle.get("version") not in (1, 2, 3, 4):
         raise ValueError("El archivo no es una copia de HomeHoard")
     data = bundle.get("data")
     if not isinstance(data, dict) or any(not isinstance(data.get(table), list) for table in TABLES):

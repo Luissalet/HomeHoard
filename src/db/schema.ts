@@ -93,6 +93,12 @@ CREATE TABLE IF NOT EXISTS maintenance_log (
 CREATE INDEX IF NOT EXISTS idx_mtask_target ON maintenance_task(target_kind, target_id);
 CREATE INDEX IF NOT EXISTS idx_mlog_task ON maintenance_log(task_id);
 
+CREATE TABLE IF NOT EXISTS packing_kit (
+  id TEXT PRIMARY KEY, household_id TEXT NOT NULL, name TEXT NOT NULL,
+  requests TEXT NOT NULL DEFAULT '[]', notes TEXT,
+  created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, deleted_at INTEGER
+);
+
 -- Nota: la búsqueda v0 usa LIKE (rápido para inventarios personales). FTS5 queda
 -- como optimización futura (ver spec §6).
 

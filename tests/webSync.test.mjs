@@ -105,6 +105,26 @@ test('a change made on the computer (Faustus) appears in the open page', async (
   assert.ok(notified >= 1, 'the interface is told to refresh');
 });
 
+test('saved kits arrive from the computer and survive backup edits sent back through sync', async () => {
+  const server = fakeServer();
+  const { source } = browser(server);
+  await source.ready();
+  await makeHome(source);
+  await pause(120);
+  server.edit('packing_kits', { id:'kit-web', household_id:server.tables.households[0].id,
+    name:'Viaje', requests:[{item_id:'planned-cable',quantity:3}], notes:null,
+    created_at:Date.now(),updated_at:Date.now()+10,deleted_at:null });
+  await pause(150);
+  const copy = structuredClone(await source.exportAll());
+  assert.equal(copy.version,4);
+  assert.equal(copy.data.packing_kits[0].requests[0].quantity,3);
+  copy.data.packing_kits[0].requests[0].quantity=2;
+  copy.data.packing_kits[0].updated_at=Date.now()+20;
+  await source.importAll(copy);
+  await pause(150);
+  assert.equal(server.tables.packing_kits[0].requests[0].quantity,2);
+});
+
 test('without the computer the web keeps working and sends everything when it answers again', async () => {
   const server = fakeServer();
   const { source, wake } = browser(server);
@@ -182,7 +202,7 @@ test('forcing a sync reports the objects the computer holds, or says it is not a
   await assert.rejects(source.sync.forceSync(), /Sin conexión con el ordenador/);
 });
 
-test('old stores migrate: favorites, tag links with ids and dates, new tables; exports are version 3', async () => {
+test('old stores migrate: favorites, tag links with ids and dates, new tables; exports are version 4', async () => {
   const s = migrateStore({ items: [{ id: 'i', name: 'x', updated_at: 7, deleted_at: null }], itemTags: [{ item_id: 'i', tag_id: 't' }] });
   assert.equal(s.items[0].favorite, 0);
   assert.deepEqual(s.itemTags[0], { item_id: 'i', tag_id: 't', id: 'i:t', updated_at: 7, deleted_at: null });
@@ -197,7 +217,7 @@ test('old stores migrate: favorites, tag links with ids and dates, new tables; e
   const task = await source.addMaintenance({ target_kind: 'item', target_id: item.id, title: 'Revisión', every_months: 24, basis: 'law', legal_ref: 'RITE IT 3.3' });
   await source.markMaintenanceDone(task.id, { note: 'Técnico', cost: 80 });
   const bundle = await source.exportAll();
-  assert.equal(bundle.version, 3);
+  assert.equal(bundle.version, 4);
   assert.equal(bundle.data.item_details[0].warranty_source, 'manual');
   assert.equal(bundle.data.maintenance_tasks.length, 1);
   assert.equal(bundle.data.maintenance_log[0].cost, 80);

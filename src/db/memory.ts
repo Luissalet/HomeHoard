@@ -25,6 +25,7 @@ import type {
   ItemTag,
   ItemWithLocation,
   MaintenanceLog,
+  PackingKit,
   MaintenanceTarget,
   MaintenanceTask,
   MaintenanceWithTarget,
@@ -55,6 +56,7 @@ interface Store {
   item_details: ItemDetails[];
   maintenance_tasks: MaintenanceTask[];
   maintenance_log: MaintenanceLog[];
+  packing_kits: PackingKit[];
 }
 
 const emptyStore = (): Store => emptyTables() as unknown as Store;
@@ -799,7 +801,7 @@ export class MemorySource implements DataSource {
   async exportAll(): Promise<ExportBundle> {
     return {
       format: 'homehoard-export',
-      version: 3,
+      version: 4,
       exported_at: now(),
       data: {
         households: [...this.s.households],
@@ -813,6 +815,7 @@ export class MemorySource implements DataSource {
         item_details: [...this.s.item_details],
         maintenance_tasks: [...this.s.maintenance_tasks],
         maintenance_log: [...this.s.maintenance_log],
+        packing_kits: [...this.s.packing_kits],
       },
     };
   }
@@ -843,7 +846,7 @@ export class MemorySource implements DataSource {
   /** Vacía la casa (casa de ejemplo): con lápidas, para que también se borre en el ordenador. */
   async clearAll(): Promise<void> {
     const t = now();
-    for (const table of ['homes', 'floors', 'rooms', 'containers', 'items', 'tags', 'itemTags', 'item_details', 'maintenance_tasks', 'maintenance_log'] as const) {
+    for (const table of ['homes', 'floors', 'rooms', 'containers', 'items', 'tags', 'itemTags', 'item_details', 'maintenance_tasks', 'maintenance_log', 'packing_kits'] as const) {
       for (const row of this.s[table] as unknown as AnyRecord[]) {
         if (row.deleted_at == null) {
           row.deleted_at = t;

@@ -3,14 +3,14 @@
 // Sin dependencias de Expo: se prueba en Node.
 
 export const LEGACY_TABLES = ['households', 'homes', 'floors', 'rooms', 'containers', 'items', 'tags', 'itemTags'] as const;
-export const NEW_TABLES = ['item_details', 'maintenance_tasks', 'maintenance_log'] as const;
+export const NEW_TABLES = ['item_details', 'maintenance_tasks', 'maintenance_log', 'packing_kits'] as const;
 export const TABLES = [...LEGACY_TABLES, ...NEW_TABLES] as const;
 export type TableName = (typeof TABLES)[number];
 
 export type AnyRecord = { id: string; updated_at: number; deleted_at: number | null; [key: string]: unknown };
 export type Tables = Record<TableName, AnyRecord[]>;
 
-const JSON_FIELDS: Partial<Record<TableName, string[]>> = { item_details: ['kafka_doc_ids', 'consumables'] };
+const JSON_FIELDS: Partial<Record<TableName, string[]>> = { item_details: ['kafka_doc_ids', 'consumables'], packing_kits: ['requests'] };
 
 export const linkId = (itemId: string, tagId: string): string => `${itemId}:${tagId}`;
 
@@ -49,6 +49,12 @@ export function normalizeRecord(table: TableName, row: unknown, fallbackTs = 0):
       }
     }
     rec[field] = Array.isArray(value) ? value : [];
+  }
+  if (table === 'packing_kits') {
+    const requests = rec.requests as Record<string, unknown>[];
+    if (typeof rec.name !== 'string' || !rec.name.trim() || requests.length < 1 || requests.length > 100) return null;
+    if (requests.some((r) => !r || typeof r !== 'object' || Array.isArray(r) || Object.keys(r).sort().join(',') !== 'item_id,quantity' ||
+      typeof r.item_id !== 'string' || !r.item_id.trim() || !Number.isSafeInteger(r.quantity) || Number(r.quantity) < 1)) return null;
   }
   return rec as AnyRecord;
 }
@@ -117,16 +123,19 @@ export interface BundleLike {
 }
 
 /**
- * Registros de una copia de cualquier versión (1, 2 o 3). En las versiones 1 y 2 los vínculos de etiquetas no tenían
+ * Registros de una copia de cualquier versión (1, 2, 3 o 4). En las versiones 1 y 2 los vínculos de etiquetas no tenían
  * id, fecha ni lápida: cada vínculo toma la fecha de su objeto.
  */
 export function recordsFromBundle(bundle: BundleLike): { tables: Tables; photos: Record<string, string>; exportedAt: number } {
-  if (!bundle || bundle.format !== 'homehoard-export' || ![1, 2, 3].includes(Number(bundle.version))) {
+  if (!bundle || bundle.format !== 'homehoard-export' || ![1, 2, 3, 4].includes(Number(bundle.version))) {
     throw new Error('El archivo no es una copia de HomeHoard');
   }
   const data = bundle.data as Record<string, unknown> | undefined;
   if (!data || typeof data !== 'object' || LEGACY_TABLES.some((t) => !Array.isArray(data[t]))) {
     throw new Error('La copia no contiene un inventario válido');
+  }
+  if (Number(bundle.version) === 4 && !Array.isArray(data.packing_kits)) {
+    throw new Error('La copia versión 4 no contiene la tabla de kits; no se ha restaurado');
   }
   const exportedAt = ms(bundle.exported_at) ?? 0;
   const itemTimes = new Map<string, number>();
@@ -139,6 +148,7 @@ export function recordsFromBundle(bundle: BundleLike): { tables: Tables; photos:
     for (const row of rows) {
       const fallback = table === 'itemTags' ? itemTimes.get(String((row as Record<string, unknown>)?.item_id)) ?? exportedAt : exportedAt;
       const rec = normalizeRecord(table, row, fallback);
+      if (!rec && table === 'packing_kits') throw new Error('La copia contiene un kit inválido; no se ha restaurado');
       if (rec) tables[table].push(rec);
     }
   }

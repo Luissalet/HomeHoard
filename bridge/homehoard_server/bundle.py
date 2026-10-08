@@ -1,15 +1,15 @@
-"""The shape of the home: tables, record normalisation and the export bundles (versions 1, 2 and 3)."""
+"""The shape of the home: tables, record normalisation and the export bundles (versions 1–4)."""
 from __future__ import annotations
 
 import json
 from typing import Any, Optional
 
 LEGACY_TABLES = ("households", "homes", "floors", "rooms", "containers", "items", "tags", "itemTags")
-NEW_TABLES = ("item_details", "maintenance_tasks", "maintenance_log")
+NEW_TABLES = ("item_details", "maintenance_tasks", "maintenance_log", "packing_kits")
 TABLES = LEGACY_TABLES + NEW_TABLES
 BUNDLE_FORMAT = "homehoard-export"
-BUNDLE_VERSIONS = (1, 2, 3)
-JSON_FIELDS = {"item_details": ("kafka_doc_ids", "consumables")}
+BUNDLE_VERSIONS = (1, 2, 3, 4)
+JSON_FIELDS = {"item_details": ("kafka_doc_ids", "consumables"), "packing_kits": ("requests",)}
 
 
 def link_id(item_id: Any, tag_id: Any) -> str:
@@ -54,6 +54,15 @@ def normalize(table: str, row: Any, fallback_ts: int = 0) -> Optional[dict[str, 
             except ValueError:
                 value = []
         rec[field] = value if isinstance(value, list) else []
+    if table == "packing_kits":
+        requests = rec["requests"]
+        if not isinstance(rec.get("name"), str) or not rec["name"].strip() or not 1 <= len(requests) <= 100:
+            return None
+        for entry in requests:
+            if (not isinstance(entry, dict) or set(entry) != {"item_id", "quantity"}
+                    or not isinstance(entry.get("item_id"), str) or not entry["item_id"].strip()
+                    or type(entry.get("quantity")) is not int or not 1 <= entry["quantity"] <= 9007199254740991):
+                return None
     return rec
 
 
@@ -67,6 +76,8 @@ def records_from_bundle(bundle: Any) -> tuple[dict[str, list[dict[str, Any]]], d
     data = bundle.get("data")
     if not isinstance(data, dict) or any(not isinstance(data.get(t), list) for t in LEGACY_TABLES):
         raise ValueError("La copia no contiene un inventario válido")
+    if bundle.get("version") == 4 and not isinstance(data.get("packing_kits"), list):
+        raise ValueError("La copia versión 4 no contiene la tabla de kits; no se ha restaurado.")
     for table in TABLES:
         rows = data.get(table) or []
         if not isinstance(rows, list) or any(not isinstance(r, dict) for r in rows):
@@ -79,6 +90,8 @@ def records_from_bundle(bundle: Any) -> tuple[dict[str, list[dict[str, Any]]], d
         for row in data.get(table) or []:
             fallback = item_times.get(row.get("item_id"), exported) if table == "itemTags" else exported
             rec = normalize(table, row, fallback)
+            if rec is None and table == "packing_kits":
+                raise ValueError("La copia contiene un kit inválido; no se ha restaurado.")
             if rec is not None:
                 rows.append(rec)
         out[table] = rows
