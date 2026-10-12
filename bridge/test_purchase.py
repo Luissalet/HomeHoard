@@ -228,7 +228,7 @@ class ManifestTest(unittest.TestCase):
     def test_the_manifest_declares_the_agenda(self):
         from pathlib import Path
         manifest = json.loads((Path(__file__).resolve().parent.parent / "faustus-plugin.json").read_text(encoding="utf-8"))
-        self.assertEqual(manifest["x-family"], {"agenda": True})
+        self.assertIs(manifest["x-family"]["agenda"], True)   # the copilot entry is tested in test_copilot.py
         self.assertIn("purchase-intake", manifest["capabilities"])
 
 

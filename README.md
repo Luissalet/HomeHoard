@@ -60,6 +60,21 @@ Events: `homehoard.item.created {item_id, source_ref}` (every new object; `homeh
 
 **Agenda**: `GET /api/family/agenda?from&to&sphere` (bearer token) lists the maintenance tasks that are due in the window as `kind: maintenance` all-day items; overdue tasks are always listed (high priority, like legal ones); paused and deleted tasks are not. Every item carries `dedupe_key: homehoard:<task id>`, the key Kafka's mirror files the same deadline under, so a hub can show the task once.
 
+## Faustus copilot
+
+Every page the server serves (the web app and `/importar`) has a floating **Faustus** button that opens a side panel with the Faustus chat. The agent sees the object, room or furniture you have open and works on it with the same tools Faustus already reaches through the MCP bridge. Conversation, model, tools and memory live in Faustus; HomeHoard keeps no chat loop and no history. It is part of the web app served by the computer; the phone app (Expo Go / native) does not have it.
+
+What the panel sends with every turn (`window.hoardCopilot.context()` in [`bridge/homehoard_server/static/copilot.js`](bridge/homehoard_server/static/copilot.js)), read from the computer's copy of the home (`GET /api/home`, downloaded again only when its version changes), so what an agent changed a moment ago is already in it:
+
+- `project`: the home (`external_project_id` = home id, `title`); one conversation per home. For an object, room or furniture it is the home it belongs to; with several homes the first one on the list pages.
+- `active_objects` on `/item/<id>`, `/room/<id>` and `/container/<id>`: the object (`kind: "item"`: name, quantity, favorite, note, full location, tags, the data sheet: brand, model, serial, purchase, store, price, warranty end, paper count, consumables, and its maintenance tasks), the room (floor, furniture with how many objects each holds, loose objects, capped at 25) or the furniture (where it stands, its contents, the containers inside it). An object the computer does not have yet is a stub with the page title (`unsynced: true`). The list pages (home, plan, search, settings, maintenance, add) have `[]`.
+- `view`: `page` (`home`, `plan`, `search`, `maintenance`, `settings`, `add`, `scan`, `item`, `room`, `container`, `import`) and, on the list pages, `summary`: counts and rooms with their object count; on Mantenimiento the tasks grouped like the tab (overdue / this month / later, paused ones left out) and the next eight due.
+- `view.editor`: text typed and not saved: the new-object form (`new_item`: name and details), changes to the open object (`edit_item`: only the fields that differ from what is saved), the search box (`search`), the manual search (`manual_search`) and any other field with text in it (`form`).
+
+When a turn ends the page is told to sync with the computer at once (the app already does it when the window gets focus) instead of waiting for its next poll, and what you had typed stays as it was.
+
+The relay is [`bridge/homehoard_server/copilot.py`](bridge/homehoard_server/copilot.py), standard library only like the rest of the server (routes: `GET /api/copilot/info`, `GET /api/copilot/panel.js`, `POST /api/copilot/proxy`, `GET /api/copilot/launcher.js`, and `GET /copilot.js` for the page script). The Faustus token stays on the server, `origin.app_id` / `data_space_id` are forced and only the copilot paths of Faustus can be reached (anything else answers 400). The routes sit behind the same family guard as the rest (loopback Host, local Origin, Fetch Metadata) and need no token, like the web app. The page script is plain JavaScript served by the bridge, so it does not depend on `npm run build:web`. Faustus is found through `HOMEHOARD_FAUSTUS_URL` / `HOARD_FAUSTUS_URL` (plus `HOARD_FAUSTUS_TOKEN`) or the Hoard Link config, falling back to `127.0.0.1:7000` / `7001`. **To turn it off** start the server with `HOARD_COPILOT=0`: no routes, no button, nothing injected (`/api/health` says `"copilot": false`). `faustus-plugin.json` declares it under `x-family.copilot`.
+
 ## Run
 
 Requires Node.js 18 or newer for the app and Python 3.11+ for the server (standard library only, including the vendored family library; `pip install -r bridge/requirements.txt` adds `mcp` for the Faustus bridge and optionally `httpx`).

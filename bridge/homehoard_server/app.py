@@ -17,6 +17,7 @@ import inventory
 
 from . import APP_ID, SERVICE, VERSION
 from . import config as C
+from . import copilot as copilotmod
 from . import tools as T
 from . import agenda as AG
 from .hoard_link import family, fam_refs
@@ -90,6 +91,7 @@ class App:
         self.lock_announced = threading.Lock()
         self.ctx.announced = self._mark_announced
         self.token = read_or_create_token(self.paths.token)
+        self.copilot = copilotmod.install(self.paths.data)   # the Faustus panel relay; None with HOARD_COPILOT=0
         self.store.listeners.append(self._changed)
         self._kafka_probe: tuple[float, dict[str, Any]] = (0.0, {})
 
@@ -167,7 +169,7 @@ class App:
     # ---------------------------------------------------------------- views
     def health(self) -> dict[str, Any]:
         return {"service": SERVICE, "app": APP_ID, "version": VERSION, "ok": True, **inventory.status(), "store": self.store.info(),
-                "web": (self.web / "index.html").is_file(), "hoard_link": family.health_block()}
+                "web": (self.web / "index.html").is_file(), "hoard_link": family.health_block(), "copilot": self.copilot is not None}
 
     def kafka_status(self, force: bool = False) -> dict[str, Any]:
         at, cached = self._kafka_probe
@@ -305,6 +307,10 @@ def make_handler(app: App) -> type[BaseHTTPRequestHandler]:
             try:
                 if path in ("/api/status", "/api/health"):
                     self._json(200, app.health())
+                elif path.startswith("/api/copilot/") and app.copilot is not None:
+                    app.copilot.get(self, path)
+                elif path == copilotmod.CLIENT_PATH and app.copilot is not None:
+                    self._send(200, copilotmod.client_js(), "application/javascript; charset=utf-8", {"Cache-Control": "no-cache"})
                 elif path == "/api/home":
                     self._json(200, app.store.client_state())
                 elif path == "/api/home/version":
@@ -329,7 +335,7 @@ def make_handler(app: App) -> type[BaseHTTPRequestHandler]:
                 elif path == "/icon.png":
                     self._file(C.ROOT / "app-icon.png", cache=True)
                 elif path in ("/importar", "/importar/"):
-                    self._send(200, IMPORT_PAGE.encode("utf-8"), "text/html; charset=utf-8")
+                    self._page(IMPORT_PAGE.encode("utf-8"))
                 elif path.startswith("/api/"):
                     self._json(404, {"error": "No encontrado"})
                 else:
@@ -344,7 +350,9 @@ def make_handler(app: App) -> type[BaseHTTPRequestHandler]:
                 return
             path = urlparse(self.path).path
             try:
-                if path == "/api/home/sync":
+                if path == "/api/copilot/proxy" and app.copilot is not None:
+                    app.copilot.proxy(self)
+                elif path == "/api/home/sync":
                     body = self._body(MAX_SYNC_BODY)
                     if not isinstance(body, dict) or not isinstance(body.get("records", {}), dict):
                         raise T.ToolError("invalid", "Se espera {base_version, records, photos}.")
@@ -403,6 +411,18 @@ def make_handler(app: App) -> type[BaseHTTPRequestHandler]:
                 ctype += "; charset=utf-8"
             self._send(200, body, ctype, {"Cache-Control": "public, max-age=31536000, immutable" if cache else "no-cache"})
 
+        def _page(self, body: bytes) -> None:
+            """An HTML page of the app: with the Faustus launcher added when the copilot is on."""
+            if app.copilot is not None:
+                body = copilotmod.inject(body)
+            self._send(200, body, "text/html; charset=utf-8", {"Cache-Control": "no-cache"})
+
+        def _html_file(self, path: Path) -> None:
+            try:
+                self._page(path.read_bytes())
+            except OSError:
+                self._json(404, {"error": "No encontrado"})
+
         def _photo(self, name: str) -> None:
             item_id = re.sub(r"\.(jpg|png|webp)$", "", name)
             found = app.store.photo_file(item_id)
@@ -425,11 +445,14 @@ def make_handler(app: App) -> type[BaseHTTPRequestHandler]:
                 self._json(404, {"error": "No encontrado"})
                 return
             if rel and target.is_file():
-                self._file(target, cache="/_expo/static/" in path or "/assets/" in path)
+                if target.suffix == ".html":
+                    self._html_file(target)
+                else:
+                    self._file(target, cache="/_expo/static/" in path or "/assets/" in path)
             elif rel and (root / (rel + ".html")).is_file():
-                self._file(root / (rel + ".html"))
+                self._html_file(root / (rel + ".html"))
             else:
-                self._file(index)
+                self._html_file(index)
 
     return Handler
 
