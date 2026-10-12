@@ -2,10 +2,38 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
+import fs from 'node:fs';
+import vm from 'node:vm';
 
 const require = createRequire(import.meta.url);
 const cp = require('../bridge/homehoard_server/static/copilot.js');
 const plain = (value) => JSON.parse(JSON.stringify(value));
+
+test('browser context snapshots route, draft and offline rows before the native read', async () => {
+  let release;
+  const inputs = [{ type: 'text', placeholder: '¿Qué objeto es?', value: 'Linterna Philips', offsetParent: {}, getAttribute: () => null },
+    { type: 'textarea', placeholder: 'Detalles…', value: 'Pending original draft', offsetParent: {}, getAttribute: () => null }];
+  let local = JSON.stringify({ items: [{ id: 'torch', name: 'Local torch', description: 'Saved' }] });
+  const root = {
+    location: { pathname: '/item/torch' }, localStorage: { getItem: () => local },
+    document: { getElementById() {}, querySelectorAll: () => inputs, querySelector: () => null,
+      body: {}, documentElement: { style: { setProperty() {}, removeProperty() {} } } },
+    history: { pushState() {}, replaceState() {} }, dispatchEvent() {}, addEventListener() {},
+    Event: class {}, requestAnimationFrame: (callback) => callback(), innerHeight: 800,
+    fetch: () => new Promise((resolve) => { release = resolve; }),
+  };
+  vm.runInNewContext(fs.readFileSync(new URL('../bridge/homehoard_server/static/copilot.js', import.meta.url), 'utf8'),
+    { window: root, setTimeout, clearTimeout });
+  const pending = root.hoardCopilot.context();
+  root.location.pathname = '/'; inputs[1].value = 'Later screen'; local = '{}';
+  // Offline fallback must use the verified original browser row, not the current screen.
+  release({ ok: false, status: 503 });
+  const result = plain(await pending);
+  assert.equal(result.view.page, 'item');
+  assert.equal(result.active_objects[0].object_id, 'torch');
+  assert.equal(result.active_objects[0].unsynced, true);
+  assert.equal(result.view.editor.fields.description, 'Pending original draft');
+});
 
 const T = 1000;
 const row = (id, name, extra = {}) => ({ id, name, created_at: T, updated_at: T, deleted_at: null, ...extra });

@@ -344,11 +344,14 @@
 
   async function context() {
     try {
+      // One turn keeps the view and its pending fields even if navigation happens during the read.
+      var path = root.location.pathname;
+      var forms = readForms(visibleInputs());
+      var day = today(), title = heading(), local = null;
+      try { local = JSON.parse(root.localStorage.getItem('homehoard.v1')); } catch (e) { /* no offline store */ }
       var data = null;
       try { data = await tables(); } catch (e) { /* the computer may be closed: the page's own title and forms still go */ }
-      var local = null;
-      try { local = JSON.parse(root.localStorage.getItem('homehoard.v1')); } catch (e) { /* no offline store */ }
-      return buildContext({ path: root.location.pathname, tables: data, localTables: local, inputs: null, forms: readForms(visibleInputs()), today: today(), heading: heading() });
+      return buildContext({ path: path, tables: data, localTables: local, inputs: null, forms: forms, today: day, heading: title });
     } catch (e) {
       return { active_objects: [], view: { page: 'unknown' } };
     }
