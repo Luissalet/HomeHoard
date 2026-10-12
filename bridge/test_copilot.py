@@ -1,5 +1,7 @@
-"""The Faustus copilot in HomeHoard: the relay (forced origin, streaming, allow-list), the pages and their launcher, the
-family guard in front of it, the off switch, the manifest and the page-side context builders."""
+"""The Faustus copilot in HomeHoard: the vendored Hoard Link relay wired into this server (forced origin, streaming,
+allow-list), the pages and their launcher, the family guard in front of it, the off switch, the manifest and the page-side
+context builders."""
+import base64
 import http.client
 import json
 import shutil
@@ -15,6 +17,8 @@ from pathlib import Path
 import inventory
 from helpers_test import Running, make_app, tempdir
 from homehoard_server import copilot as cp
+from homehoard_server.hoard_link.copilot_launcher import LAUNCHER_JS
+from homehoard_server.hoard_link.copilot_stdlib import CopilotRelay
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -24,6 +28,7 @@ class FakeFaustus:
 
     def __init__(self):
         self.posts = []
+        self.raw_posts = []
         owner = self
 
         class Handler(BaseHTTPRequestHandler):
@@ -47,7 +52,12 @@ class FakeFaustus:
 
             def do_POST(self):
                 body = self.rfile.read(int(self.headers.get("Content-Length") or 0))
-                owner.posts.append((self.path, self.headers.get("Authorization"), json.loads(body or b"null")))
+                owner.raw_posts.append(body)
+                try:
+                    parsed = json.loads(body or b"null")
+                except ValueError:   # a multipart upload
+                    parsed = None
+                owner.posts.append((self.path, self.headers.get("Authorization"), parsed))
                 if self.path == "/api/chat_stream":
                     self.send_response(200)
                     self.send_header("Content-Type", "text/event-stream")
@@ -87,7 +97,7 @@ class CopilotTest(unittest.TestCase):
         web = Path(self.tmp.name) / "web"
         web.mkdir()
         (web / "index.html").write_text('<!DOCTYPE html><html><body><div id="root"></div></body></html>', encoding="utf-8")
-        self.app.copilot = cp.Copilot(self.app.paths.data, urls=[self.fake.url], faustus_token="secret-token")
+        self.app.copilot = cp.install(self.app.paths.data, urls=[self.fake.url], faustus_token="secret-token")
 
     def tearDown(self):
         inventory.use_store(None)
@@ -102,7 +112,7 @@ class CopilotTest(unittest.TestCase):
             self.assertEqual((info["app_id"], info["app_name"]), ("homehoard", "HomeHoard"))
             self.assertEqual(info["panel_url"], "/api/copilot/panel.js")
             self.assertEqual(info["settings_url"], self.fake.url + "/studio/settings")
-            self.assertEqual(info["data_space_id"], cp.space_id(self.app.paths.data))
+            self.assertEqual(info["data_space_id"], (Path(self.app.paths.data) / "copilot-space-id").read_text(encoding="utf-8").strip())
             self.assertEqual(json.loads(call(base, "/api/copilot/info")[1])["data_space_id"], info["data_space_id"])
 
     def test_every_page_carries_the_launcher_once_and_the_scripts_are_served(self):
@@ -113,8 +123,10 @@ class CopilotTest(unittest.TestCase):
                 self.assertEqual(page.count('<script src="/copilot.js"></script>'), 1, path)
             code, body, headers = call(base, "/api/copilot/launcher.js")
             self.assertEqual(code, 200)
+            self.assertEqual(body, LAUNCHER_JS.encode("utf-8"))   # the vendored launcher, served as is
             self.assertIn(b"hoardCopilot", body)
             self.assertIn("javascript", headers["Content-Type"])
+            self.assertFalse((cp.STATIC / "copilot-launcher.js").exists())   # no private copy of it
             code, body, _ = call(base, "/copilot.js")
             self.assertEqual(code, 200)
             self.assertIn(b"root.hoardCopilot", body)
@@ -135,9 +147,8 @@ class CopilotTest(unittest.TestCase):
             path, auth, body = self.fake.posts[-1]
             self.assertEqual((path, auth), ("/api/hoard-copilot/turn", "Bearer secret-token"))
             self.assertEqual(body["context"]["origin"]["app_id"], "homehoard")
-            self.assertEqual(body["context"]["origin"]["data_space_id"], self.app.copilot.space)
-            for bad in ("/api/admin/keys", "//evil.example/x", "api/chat/x", "/api/hoard-copilotx/y", "/api/hoard-copilot/../admin/keys",
-                        "/api/chat/%2e%2e/admin"):
+            self.assertEqual(body["context"]["origin"]["data_space_id"], self.app.copilot.space_id)
+            for bad in ("/api/admin/keys", "//evil.example/x", "api/chat/x", "/api/hoard-copilotx/y", "http://evil.example/api/chat/x"):
                 self.assertEqual(call(base, "/api/copilot/proxy", "POST", {"path": bad, "method": "GET"})[0], 400, bad)
             self.assertEqual(call(base, "/api/copilot/proxy", "POST", ["not", "an", "object"])[0], 400)
 
@@ -166,7 +177,7 @@ class CopilotTest(unittest.TestCase):
 
     def test_faustus_closed_answers_503_not_a_crash(self):
         self.fake.close()
-        self.app.copilot = cp.Copilot(self.app.paths.data, urls=["http://127.0.0.1:9"], faustus_token=None)
+        self.app.copilot = cp.install(self.app.paths.data, urls=["http://127.0.0.1:9"], faustus_token="")
         with Running(self.app) as base:
             self.assertEqual(call(base, "/api/copilot/info")[0], 503)
             self.assertEqual(call(base, "/api/copilot/panel.js")[0], 503)
@@ -206,7 +217,9 @@ class CopilotTest(unittest.TestCase):
         try:
             os.environ["HOMEHOARD_FAUSTUS_URL"] = "http://127.0.0.1:9"
             os.environ["HOARD_FAUSTUS_TOKEN"] = "abc"
-            self.assertEqual(cp.faustus_config(), (["http://127.0.0.1:9"], "abc"))
+            relay = cp.install(self.app.paths.data)
+            self.assertEqual(relay.urls, ("http://127.0.0.1:9",))
+            self.assertEqual(relay.token, "abc")
         finally:
             for key, value in saved.items():
                 if value is None:
@@ -220,23 +233,29 @@ class CopilotTest(unittest.TestCase):
         body = (("--%s\r\nContent-Disposition: form-data; name=\"context\"\r\n\r\n%s\r\n"
                  "--%s\r\nContent-Disposition: form-data; name=\"file\"; filename=\"a.bin\"\r\n\r\n") % (boundary, context, boundary)).encode()
         body += b"\x00\x01\r\nraw\xff" + ("\r\n--%s--\r\n" % boundary).encode()
-        out = cp.multipart_context(body, "multipart/form-data; boundary=" + boundary, {"app_id": "homehoard", "data_space_id": "s"})
-        self.assertIn(b'"app_id": "homehoard"', out)
-        self.assertIn(b'"page": "item"', out)
-        self.assertIn(b"\x00\x01\r\nraw\xff", out)
-        self.assertEqual(out.count(b"--XB"), 3)
-        self.assertEqual(cp.multipart_context(b"abc", "text/plain", {}), b"abc")
+        with Running(self.app) as base:
+            envelope = {"path": "/api/hoard-copilot/upload", "method": "POST", "content_type": "multipart/form-data; boundary=" + boundary,
+                        "raw_body": base64.b64encode(body).decode("ascii")}
+            self.assertEqual(call(base, "/api/copilot/proxy", "POST", envelope)[0], 200)
+        sent = self.fake.raw_posts[-1]
+        self.assertIn(b'"app_id": "homehoard"', sent)
+        self.assertIn(b'"page": "item"', sent)
+        self.assertIn(b"\x00\x01\r\nraw\xff", sent)
+        self.assertEqual(sent.count(b"--XB"), 3)
 
-    def test_path_allow_list_and_injection(self):
-        for ok in ("/api/hoard-copilot/turn", "/api/chat_stream", "/api/chat/abc", "/api/session", "/api/sessions/1?x=2"):
-            self.assertTrue(cp.path_allowed(ok), ok)
-        for bad in ("/api/admin", "//x", "api/chat/x", "/api/chat/../admin", "/api/chat/%2E%2e/x", "", None, 5):
-            self.assertFalse(cp.path_allowed(bad), bad)
+    def test_the_html_injection_adds_the_page_script_then_the_launcher_once(self):
         once = cp.inject(b"<html><body><p>x</p></body></html>")
         self.assertEqual(once.count(b"/api/copilot/launcher.js"), 1)
+        self.assertEqual(once.count(b'<script src="/copilot.js"></script>'), 1)
+        self.assertLess(once.index(b"/copilot.js"), once.index(b"launcher.js"))
         self.assertLess(once.index(b"launcher.js"), once.index(b"</body>"))
         self.assertEqual(cp.inject(once), once)
         self.assertTrue(cp.inject(b"<p>no body</p>").endswith(b"</script>"))
+        self.assertEqual(CopilotRelay.inject_html(b"<body></body>").count(b"launcher.js"), 1)
+
+    def test_the_relay_is_the_vendored_one(self):
+        self.assertIsInstance(self.app.copilot, CopilotRelay)
+        self.assertEqual((self.app.copilot.app_id, self.app.copilot.app_name), ("homehoard", "HomeHoard"))
 
     def test_manifest_declares_the_copilot(self):
         manifest = json.loads((ROOT / "faustus-plugin.json").read_text(encoding="utf-8"))

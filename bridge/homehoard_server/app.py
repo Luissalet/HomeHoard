@@ -305,10 +305,10 @@ def make_handler(app: App) -> type[BaseHTTPRequestHandler]:
             url = urlparse(self.path)
             path = url.path
             try:
+                if app.copilot is not None and app.copilot.handle(self):   # the Faustus relay: info, panel, launcher
+                    return
                 if path in ("/api/status", "/api/health"):
                     self._json(200, app.health())
-                elif path.startswith("/api/copilot/") and app.copilot is not None:
-                    app.copilot.get(self, path)
                 elif path == copilotmod.CLIENT_PATH and app.copilot is not None:
                     self._send(200, copilotmod.client_js(), "application/javascript; charset=utf-8", {"Cache-Control": "no-cache"})
                 elif path == "/api/home":
@@ -350,9 +350,9 @@ def make_handler(app: App) -> type[BaseHTTPRequestHandler]:
                 return
             path = urlparse(self.path).path
             try:
-                if path == "/api/copilot/proxy" and app.copilot is not None:
-                    app.copilot.proxy(self)
-                elif path == "/api/home/sync":
+                if app.copilot is not None and app.copilot.handle(self):   # the Faustus relay: proxy
+                    return
+                if path == "/api/home/sync":
                     body = self._body(MAX_SYNC_BODY)
                     if not isinstance(body, dict) or not isinstance(body.get("records", {}), dict):
                         raise T.ToolError("invalid", "Se espera {base_version, records, photos}.")

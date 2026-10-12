@@ -30,7 +30,7 @@
 
 ## Faustus copilot (`/api/copilot/*`)
 
-Standard library relay in `bridge/homehoard_server/copilot.py`; absent with `HOARD_COPILOT=0`. Behind the same family
+The vendored Hoard Link `CopilotRelay` (standard library), wired in by `bridge/homehoard_server/copilot.py`; absent with `HOARD_COPILOT=0`. Behind the same family
 guard as everything above, no token (like the web app).
 
 | Route | What it does |
