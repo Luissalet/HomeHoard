@@ -16,7 +16,7 @@ import uuid
 from pathlib import Path
 from typing import Any, Callable, Optional
 
-from .bundle import LEGACY_TABLES, TABLES, normalize
+from .bundle import LEGACY_TABLES, TABLES, link_id, normalize
 from .config import Paths
 from .hoard_link.atomic import write_bytes_atomic, write_text_atomic
 
@@ -227,6 +227,51 @@ class HomeStore:
             rec.setdefault("deleted_at", None)
             self.merge({table: [rec]}, mode="sync", origin=origin)
             return copy.deepcopy(self.state["tables"][table][rec["id"]])
+
+    def patch_item(self, rid: str, patch: dict[str, Any]) -> dict[str, Any]:
+        """The web form changes only submitted fields, under the native store lock."""
+        allowed = {"name", "description", "quantity", "room_id", "container_id", "photo_uri", "favorite", "tagIds"}
+        if not isinstance(patch, dict) or set(patch) - allowed:
+            raise ValueError("Se esperan los campos editados del objeto.")
+        with self.lock:
+            current = self.get("items", rid)
+            if not current or current.get("deleted_at") is not None:
+                raise ValueError("Objeto no encontrado.")
+            fields = dict(patch)
+            tags = fields.pop("tagIds", None)
+            if "name" in fields and (not isinstance(fields["name"], str) or not fields["name"].strip()):
+                raise ValueError("El nombre no puede estar vacío.")
+            for key in ("description", "container_id", "photo_uri"):
+                if key in fields and fields[key] is not None and not isinstance(fields[key], str):
+                    raise ValueError(f"{key} debe ser texto o null.")
+            if "quantity" in fields and (type(fields["quantity"]) is not int or fields["quantity"] < 0):
+                raise ValueError("La cantidad debe ser un entero no negativo.")
+            if "favorite" in fields:
+                if not isinstance(fields["favorite"], bool):
+                    raise ValueError("favorite debe ser booleano.")
+                fields["favorite"] = int(fields["favorite"])
+            if "room_id" in fields and not isinstance(fields["room_id"], str):
+                raise ValueError("room_id debe ser un id de habitación.")
+            if tags is not None and (not isinstance(tags, list) or any(not isinstance(t, str) for t in tags)):
+                raise ValueError("tagIds debe ser una lista de ids.")
+            stamp = max(self.now_ms(), int(current.get("updated_at") or 0) + 1)
+            records = {"items": [{**current, **fields, "updated_at": stamp}]} if fields else {}
+            if tags is not None:
+                wanted = set(tags)
+                links = {r["tag_id"]: r for r in self.tables()["itemTags"] if r["item_id"] == rid}
+                stamp = max(stamp, max((int(r.get("updated_at") or 0) + 1 for r in links.values()), default=stamp))
+                if "items" in records:
+                    records["items"][0]["updated_at"] = stamp
+                records["itemTags"] = [
+                    {"id": link_id(rid, tag), "item_id": rid, "tag_id": tag, "updated_at": stamp,
+                     "deleted_at": None if tag in wanted else stamp}
+                    for tag in set(links) | wanted
+                ]
+            photo = fields.get("photo_uri")
+            photos = {rid: photo} if isinstance(photo, str) and photo.startswith("data:image/") else {}
+            if records:
+                self.merge(records, photos, mode="sync", origin="app")
+            return self.client_state()
 
     def set_silently(self, table: str, rid: str, **fields: Any) -> None:
         """Server-managed fields (the Kafka deadline id): stored without a new ``updated_at`` so they never win over an

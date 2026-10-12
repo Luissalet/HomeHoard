@@ -1,7 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Image } from 'expo-image';
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { useData } from '../db/provider';
 import { normalizeText } from '../db/searchUtil';
@@ -11,6 +11,8 @@ import { Button, Chip, Input } from '../ui/components';
 import { usePrompt } from '../ui/PromptProvider';
 import { LocationPicker, type LocationValue } from './LocationPicker';
 import { cameraAvailable, persistPhoto, pickFromLibrary, takePhoto } from './photos';
+import { acknowledgeItemFields, changedItemFields, type ItemValues } from './itemPatch';
+import type { UpdateItemInput } from '../db/types';
 
 export interface ItemFormValues {
   name: string;
@@ -38,12 +40,14 @@ export function ItemForm({
   submitLabel,
   onSubmit,
   onSubmitAndAnother,
+  onSubmitted,
   checkDuplicates = false,
 }: {
   initial?: ItemFormInitial;
   submitLabel: string;
-  onSubmit: (v: ItemFormValues) => Promise<void> | void;
+  onSubmit: (v: ItemFormValues, patch: UpdateItemInput) => Promise<void> | void;
   onSubmitAndAnother?: (v: ItemFormValues) => Promise<void> | void;
+  onSubmitted?: () => void;
   /** En alta: avisa si ya existe un objeto con nombre parecido. */
   checkDuplicates?: boolean;
 }) {
@@ -95,6 +99,27 @@ export function ItemForm({
     favorite,
     tagIds,
   });
+  const current = useRef<ItemValues>(collect());
+  current.current = collect();
+  const saved = useRef<ItemValues>({ ...collect(), tagIds: [...tagIds] });
+  const incoming = {
+    name: initial?.name ?? '', description: initial?.description || null,
+    quantity: initial?.quantity ?? 1, roomId: initial?.location?.roomId ?? '',
+    containerId: initial?.location?.containerId ?? null, photoUri: initial?.photoUri ?? null,
+    favorite: initial?.favorite ?? false, tagIds: initial?.tagIds ?? [],
+  };
+  const incomingKey = JSON.stringify(incoming);
+  useEffect(() => {
+    const changed = changedItemFields(saved.current, current.current);
+    if (changed.name === undefined) setName(incoming.name);
+    if (changed.description === undefined) setDescription(incoming.description ?? '');
+    if (changed.quantity === undefined) setQuantity(incoming.quantity);
+    if (changed.photo_uri === undefined) setPhotoUri(incoming.photoUri);
+    if (changed.favorite === undefined) setFavorite(incoming.favorite);
+    if (changed.tagIds === undefined) setTagIds(incoming.tagIds);
+    if (changed.room_id === undefined && initial?.location) setLocation(initial.location);
+    saved.current = incoming;
+  }, [incomingKey]);
 
   async function addPhoto(fromCamera: boolean) {
     const uri = fromCamera ? await takePhoto() : await pickFromLibrary();
@@ -129,7 +154,12 @@ export function ItemForm({
         setTagIds([]);
         setDupQuery('');
       } else {
-        await onSubmit(values);
+        const patch = changedItemFields(saved.current, values);
+        await onSubmit(values, patch);
+        // A later edit stays on screen; acknowledge only the values that were sent.
+        const later = changedItemFields(values, current.current);
+        saved.current = acknowledgeItemFields(saved.current, values, patch);
+        if (!Object.keys(later).length) onSubmitted?.();
       }
     } finally {
       setBusy(false);

@@ -37,6 +37,21 @@ function fakeServer({ instance = 'inst-1' } = {}) {
       if (R.mergeInto(server.tables, records)) server.version += 1;
       return reply({ ok: true, state: { version: server.version, instance: server.instance, tables: server.tables } });
     }
+    if (path === '/api/home/item-patch') {
+      const { id, patch } = JSON.parse(init.body);
+      const item = server.tables.items.find((i) => i.id === id);
+      if (!item) return { ok: false, status: 400, json: async () => ({}) };
+      const stamp = Math.max(Date.now(), item.updated_at + 1);
+      const { tagIds, ...fields } = patch;
+      if (fields.favorite !== undefined) fields.favorite = Number(fields.favorite);
+      server.edit('items', { ...item, ...fields, updated_at: stamp });
+      if (tagIds !== undefined) {
+        const ids = new Set([...tagIds, ...server.tables.itemTags.filter((l) => l.item_id === id).map((l) => l.tag_id)]);
+        for (const tag of ids) server.edit('itemTags', { id: id + ':' + tag, item_id: id, tag_id: tag,
+          updated_at: stamp, deleted_at: tagIds.includes(tag) ? null : stamp });
+      }
+      return reply({ ok: true, state: { version: server.version, instance: server.instance, tables: server.tables } });
+    }
     return { ok: false, status: 404, json: async () => ({}) };
   };
   return server;

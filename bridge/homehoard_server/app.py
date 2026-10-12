@@ -359,6 +359,11 @@ def make_handler(app: App) -> type[BaseHTTPRequestHandler]:
                     result = app.store.merge(body.get("records") or {}, body.get("photos") or {}, mode="sync", origin="app")
                     self._json(200, {"ok": True, **{k: result[k] for k in ("applied", "ignored", "invalid", "notes", "version", "instance")},
                                      "base_version": body.get("base_version"), "state": app.store.client_state()})
+                elif path == "/api/home/item-patch":
+                    body = self._body(MAX_SYNC_BODY)
+                    if not isinstance(body, dict) or not isinstance(body.get("id"), str):
+                        raise T.ToolError("invalid", "Se espera {id, patch}.")
+                    self._json(200, {"ok": True, "state": app.store.patch_item(body["id"], body.get("patch"))})
                 elif path == "/api/import":
                     self._json(200, inventory.save(self._body()))
                 elif path == "/api/agent/call":

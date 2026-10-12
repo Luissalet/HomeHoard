@@ -269,10 +269,18 @@
         else if (route.page === 'room') objects.push(roomObject(ix, row));
         else objects.push(containerObject(ix, row));
       } else {
-        // not in the computer's copy (yet): the page's own title is all there is
-        var stub = { kind: route.page, object_id: route.id, unsynced: true };
-        if (state.heading) stub.title = state.heading;
-        objects.push(stub);
+        // A URL is not a record. Offline references need the browser's actual store.
+        var local = indexTables(state.localTables);
+        var localTable = { item: local.items, room: local.rooms, container: local.containers }[route.page];
+        var localRow = localTable[route.id];
+        if (localRow) {
+          var object = route.page === 'item' ? itemObject(local, localRow)
+            : route.page === 'room' ? roomObject(local, localRow) : containerObject(local, localRow);
+          object.unsynced = true;
+          objects.push(object);
+          if (route.page === 'item') saved = localRow;
+          home = homeOfRoom(local, route.page === 'room' ? localRow : local.rooms[localRow.room_id]) || home;
+        }
       }
     } else if (route.page === 'maintenance') {
       view.summary = maintenanceSummary(ix, state.today);
@@ -338,7 +346,9 @@
     try {
       var data = null;
       try { data = await tables(); } catch (e) { /* the computer may be closed: the page's own title and forms still go */ }
-      return buildContext({ path: root.location.pathname, tables: data, inputs: null, forms: readForms(visibleInputs()), today: today(), heading: heading() });
+      var local = null;
+      try { local = JSON.parse(root.localStorage.getItem('homehoard.v1')); } catch (e) { /* no offline store */ }
+      return buildContext({ path: root.location.pathname, tables: data, localTables: local, inputs: null, forms: readForms(visibleInputs()), today: today(), heading: heading() });
     } catch (e) {
       return { active_objects: [], view: { page: 'unknown' } };
     }

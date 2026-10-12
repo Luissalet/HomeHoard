@@ -120,18 +120,11 @@ export default function ItemScreen() {
           location: { roomId: item.room_id, containerId: item.container_id, label },
         }}
         submitLabel="Guardar cambios"
-        onSubmit={async (v: ItemFormValues) => {
-          await data.updateItem(id, {
-            name: v.name,
-            description: v.description,
-            quantity: v.quantity,
-            room_id: v.roomId,
-            container_id: v.containerId,
-            photo_uri: v.photoUri,
-            favorite: v.favorite,
-            tagIds: v.tagIds,
-          });
+        onSubmit={async (_v: ItemFormValues, patch) => {
+          if (Object.keys(patch).length) await data.updateItem(id, patch);
           invalidate();
+        }}
+        onSubmitted={() => {
           router.back();
           toast('Cambios guardados ✓');
         }}

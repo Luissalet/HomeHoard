@@ -1104,4 +1104,7 @@ def call(ctx: Ctx, name: str, arguments: Optional[dict[str, Any]]) -> dict[str, 
     extra = sorted(set(args) - allowed)
     if extra:
         raise ToolError("invalid", f"Unknown arguments: {', '.join(extra)}.", "Allowed: " + ", ".join(sorted(allowed)))
+    if name in ("home_update_item", "home_move_item"):
+        with ctx.store.lock:
+            return tool.run(ctx, args)
     return tool.run(ctx, args)

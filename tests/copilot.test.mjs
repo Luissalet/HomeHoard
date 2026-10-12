@@ -95,11 +95,15 @@ test('long lists are capped and say how much was left out', () => {
   assert.equal(room.item_count, 40);
 });
 
-test('an object the computer does not have yet is a stub with the page title', () => {
+test('unknown route IDs are empty; real local records can be unsynced', () => {
   const ctx = plain(cp.buildContext({ path: '/item/new-one', tables: TABLES, heading: 'Taladro' }));
-  assert.deepEqual(ctx.active_objects, [{ kind: 'item', object_id: 'new-one', unsynced: true, title: 'Taladro' }]);
+  assert.deepEqual(ctx.active_objects, []);
   const offline = plain(cp.buildContext({ path: '/item/x', tables: null }));
-  assert.deepEqual(offline.active_objects, [{ kind: 'item', object_id: 'x', unsynced: true }]);
+  assert.deepEqual(offline.active_objects, []);
+  const local = plain(cp.buildContext({ path: '/item/torch', tables: null, localTables: TABLES }));
+  assert.equal(local.active_objects[0].object_id, 'torch');
+  assert.equal(local.active_objects[0].title, 'Linterna Philips');
+  assert.equal(local.active_objects[0].unsynced, true);
 });
 
 test('list pages have no active objects but say what they show', () => {

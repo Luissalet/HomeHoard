@@ -5,6 +5,7 @@
 // - Mientras la página está visible pregunta /api/home/version cada pocos segundos para ver los cambios de Faustus.
 // Sin dependencias de React ni de Expo: se prueba en Node con fetch y almacenamiento simulados.
 import { mergeInto, recordKey, TABLES, type AnyRecord, type TableName, type Tables } from './records';
+import type { UpdateItemInput } from './types';
 
 export const SERVER_URL = 'http://127.0.0.1:5196';
 const META_KEY = 'homehoard.sync.v1';
@@ -264,6 +265,18 @@ export class ServerSync {
     } catch {
       this.set({ mode: 'offline', error: 'sin conexión con el ordenador' });
     }
+  }
+
+  /** Apply just the submitted item fields to the current computer record. */
+  async patchItem(id: string, patch: UpdateItemInput): Promise<void> {
+    // A just-created offline/local row must reach the computer before its patch.
+    if (!(await this.pushNow())) throw new Error('No se pudo guardar en el ordenador.');
+    const result = (await this.request('/api/home/item-patch', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id, patch }),
+    })) as { state: ServerState };
+    this.adopt(result.state);
+    this.set({ version: result.state.version, lastSync: this.env.now(), pending: this.dirty().length });
   }
 
   /** Llamar tras cada cambio local. */

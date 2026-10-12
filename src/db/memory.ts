@@ -460,6 +460,10 @@ export class MemorySource implements DataSource {
   }
 
   async updateItem(id: ID, patch: UpdateItemInput): Promise<void> {
+    if (this.sync?.status.mode === 'online') {
+      await this.sync.patchItem(id, patch);
+      return;
+    }
     const item = this.s.items.find((i) => i.id === id);
     if (!item) return;
     if (patch.name !== undefined) item.name = patch.name;

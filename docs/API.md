@@ -12,6 +12,7 @@
 | `GET /api/home` | the computer's copy of the home: `{instance, version, tables}` (households, homes, floors, rooms, containers, items, tags, itemTags, item_details, maintenance_tasks, maintenance_log, packing_kits) |
 | `GET /api/home/version` | `{version, instance}`, cheap to poll |
 | `POST /api/home/sync` | `{base_version, records, photos}`: merge the web app's changes (the most recent change of each record wins) and return the new state |
+| `POST /api/home/item-patch` | `{id, patch}`: atomically change only submitted item fields on the current computer row; returns `{ok, state}`. Fields: `name`, `description`, `quantity`, `room_id`, `container_id`, `photo_uri`, `favorite`, `tagIds`; null and empty tag lists retain their clearing meaning. Photos use the existing data-image or stored-photo representation. |
 | `POST /api/import` | import a JSON backup |
 | `GET /photos/<id>` | an object's photo |
 | `GET /importar` | the import page |
@@ -47,3 +48,5 @@ launcher added before `</body>`.
 The page side is `window.hoardCopilot` (`bridge/homehoard_server/static/copilot.js`): `context(base)` returns `project`
 (the home), `active_objects` (the open object, room or furniture, read from `GET /api/home`) and `view` (`page`,
 `summary`, `view.editor`); `onTurnEnd(detail)` makes the app sync with the computer at once.
+
+An unknown URL id with no computer or browser row has no active object. A verified row in the browser's persisted offline store may be sent with `unsynced: true`. The item form compares against its saved baseline, preserves dirty fields as native updates arrive, and sends only edited fields through the atomic patch route while online. A later edit during Save remains on screen for the next Save. Existing offline/local record synchronization stays available; the 19 native MCP tools retain their catalogue.
