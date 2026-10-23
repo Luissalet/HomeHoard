@@ -1,0 +1,288 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-10-23T16:00:26.046116+00:00",
+  "title": "Design System: HomeHoard",
+  "extensions": {
+    "colorMeta": {
+      "amber": {
+        "role": "primary",
+        "displayName": "Ámbar",
+        "canonical": "#e5913f",
+        "tonalRamp": [
+          "oklch(15% 0.13917 61.56)",
+          "oklch(27% 0.13917 61.56)",
+          "oklch(38% 0.13917 61.56)",
+          "oklch(49% 0.13917 61.56)",
+          "oklch(61% 0.13917 61.56)",
+          "oklch(72% 0.13917 61.56)",
+          "oklch(84% 0.13917 61.56)",
+          "oklch(95% 0.13917 61.56)"
+        ]
+      },
+      "amber-ink": {
+        "role": "neutral",
+        "displayName": "Tinta sobre ámbar",
+        "canonical": "#1b1713",
+        "tonalRamp": [
+          "oklch(15% 0.01001 67.23)",
+          "oklch(27% 0.01001 67.23)",
+          "oklch(38% 0.01001 67.23)",
+          "oklch(49% 0.01001 67.23)",
+          "oklch(61% 0.01001 67.23)",
+          "oklch(72% 0.01001 67.23)",
+          "oklch(84% 0.01001 67.23)",
+          "oklch(95% 0.01001 67.23)"
+        ]
+      },
+      "warm-ground": {
+        "role": "neutral",
+        "displayName": "Fondo cálido",
+        "canonical": "#1c1814",
+        "tonalRamp": [
+          "oklch(15% 0.00997 67.25)",
+          "oklch(27% 0.00997 67.25)",
+          "oklch(38% 0.00997 67.25)",
+          "oklch(49% 0.00997 67.25)",
+          "oklch(61% 0.00997 67.25)",
+          "oklch(72% 0.00997 67.25)",
+          "oklch(84% 0.00997 67.25)",
+          "oklch(95% 0.00997 67.25)"
+        ]
+      },
+      "warm-surface": {
+        "role": "neutral",
+        "displayName": "Superficie cálida",
+        "canonical": "#24201b",
+        "tonalRamp": [
+          "oklch(15% 0.01105 73.41)",
+          "oklch(27% 0.01105 73.41)",
+          "oklch(38% 0.01105 73.41)",
+          "oklch(49% 0.01105 73.41)",
+          "oklch(61% 0.01105 73.41)",
+          "oklch(72% 0.01105 73.41)",
+          "oklch(84% 0.01105 73.41)",
+          "oklch(95% 0.01105 73.41)"
+        ]
+      },
+      "warm-raised": {
+        "role": "neutral",
+        "displayName": "Superficie elevada cálida",
+        "canonical": "#2f2a25",
+        "tonalRamp": [
+          "oklch(15% 0.01155 67.34)",
+          "oklch(27% 0.01155 67.34)",
+          "oklch(38% 0.01155 67.34)",
+          "oklch(49% 0.01155 67.34)",
+          "oklch(61% 0.01155 67.34)",
+          "oklch(72% 0.01155 67.34)",
+          "oklch(84% 0.01155 67.34)",
+          "oklch(95% 0.01155 67.34)"
+        ]
+      },
+      "warm-border": {
+        "role": "neutral",
+        "displayName": "Borde cálido",
+        "canonical": "#433c35",
+        "tonalRamp": [
+          "oklch(15% 0.01528 67.31)",
+          "oklch(27% 0.01528 67.31)",
+          "oklch(38% 0.01528 67.31)",
+          "oklch(49% 0.01528 67.31)",
+          "oklch(61% 0.01528 67.31)",
+          "oklch(72% 0.01528 67.31)",
+          "oklch(84% 0.01528 67.31)",
+          "oklch(95% 0.01528 67.31)"
+        ]
+      },
+      "warm-text": {
+        "role": "neutral",
+        "displayName": "Texto cálido",
+        "canonical": "#ece7e1",
+        "tonalRamp": [
+          "oklch(15% 0.00972 72.66)",
+          "oklch(27% 0.00972 72.66)",
+          "oklch(38% 0.00972 72.66)",
+          "oklch(49% 0.00972 72.66)",
+          "oklch(61% 0.00972 72.66)",
+          "oklch(72% 0.00972 72.66)",
+          "oklch(84% 0.00972 72.66)",
+          "oklch(95% 0.00972 72.66)"
+        ]
+      },
+      "warm-muted": {
+        "role": "neutral",
+        "displayName": "Texto atenuado",
+        "canonical": "#beb9b4",
+        "tonalRamp": [
+          "oklch(15% 0.00901 67.70)",
+          "oklch(27% 0.00901 67.70)",
+          "oklch(38% 0.00901 67.70)",
+          "oklch(49% 0.00901 67.70)",
+          "oklch(61% 0.00901 67.70)",
+          "oklch(72% 0.00901 67.70)",
+          "oklch(84% 0.00901 67.70)",
+          "oklch(95% 0.00901 67.70)"
+        ]
+      },
+      "error": {
+        "role": "error",
+        "displayName": "Error",
+        "canonical": "#e0685c",
+        "tonalRamp": [
+          "oklch(15% 0.15235 27.73)",
+          "oklch(27% 0.15235 27.73)",
+          "oklch(38% 0.15235 27.73)",
+          "oklch(49% 0.15235 27.73)",
+          "oklch(61% 0.15235 27.73)",
+          "oklch(72% 0.15235 27.73)",
+          "oklch(84% 0.15235 27.73)",
+          "oklch(95% 0.15235 27.73)"
+        ]
+      },
+      "success": {
+        "role": "success",
+        "displayName": "Éxito",
+        "canonical": "#6cbf8c",
+        "tonalRamp": [
+          "oklch(15% 0.11076 155.52)",
+          "oklch(27% 0.11076 155.52)",
+          "oklch(38% 0.11076 155.52)",
+          "oklch(49% 0.11076 155.52)",
+          "oklch(61% 0.11076 155.52)",
+          "oklch(72% 0.11076 155.52)",
+          "oklch(84% 0.11076 155.52)",
+          "oklch(95% 0.11076 155.52)"
+        ]
+      },
+      "warning": {
+        "role": "warning",
+        "displayName": "Aviso",
+        "canonical": "#d4a843",
+        "tonalRamp": [
+          "oklch(15% 0.12744 84.93)",
+          "oklch(27% 0.12744 84.93)",
+          "oklch(38% 0.12744 84.93)",
+          "oklch(49% 0.12744 84.93)",
+          "oklch(61% 0.12744 84.93)",
+          "oklch(72% 0.12744 84.93)",
+          "oklch(84% 0.12744 84.93)",
+          "oklch(95% 0.12744 84.93)"
+        ]
+      }
+    },
+    "typographyMeta": {
+      "headline": {
+        "displayName": "Título de pantalla",
+        "purpose": "Serif declarada en fuente; disponibilidad efectiva de Cinzel no verificada."
+      },
+      "title": {
+        "displayName": "Sección",
+        "purpose": "Encabezados de Kits y equipo."
+      },
+      "body": {
+        "displayName": "Ayuda",
+        "purpose": "Sans predeterminada de la plataforma; no se impone familia nueva."
+      },
+      "item": {
+        "displayName": "Nombre de objeto",
+        "purpose": "Nombres y cantidades destacadas."
+      },
+      "label": {
+        "displayName": "Etiqueta de campo",
+        "purpose": "Mayúsculas de Field."
+      }
+    },
+    "shadows": [],
+    "motion": [],
+    "breakpoints": [
+      {
+        "name": "kits-columns",
+        "value": "850px"
+      }
+    ]
+  },
+  "components": [
+    {
+      "name": "Acción principal",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "Action local de Kits; 48 px es mínimo. Sin hover propio; foco del navegador conservado.",
+      "html": "<button class=\"ds-action-primary\">Comprobar selección</button>",
+      "css": ".ds-action-primary{min-height:48px;padding:0 12px;border:1px solid #e5913f;border-radius:8px;background:#e5913f;color:#1b1713;font:600 13px sans-serif;cursor:pointer} .ds-action-primary:hover{background:#e5913f} .ds-action-primary:focus-visible{outline:auto} .ds-action-primary:active{opacity:.75} .ds-action-primary:disabled{opacity:.5;cursor:default}"
+    },
+    {
+      "name": "Acción secundaria",
+      "kind": "button",
+      "refersTo": "button-secondary",
+      "description": "Action local de Kits; 48 px es mínimo. Sin hover propio; foco del navegador conservado.",
+      "html": "<button class=\"ds-action-secondary\">Quitar</button>",
+      "css": ".ds-action-secondary{min-height:48px;padding:0 12px;border:1px solid #433c35;border-radius:8px;background:#2f2a25;color:#ece7e1;font:600 13px sans-serif;cursor:pointer} .ds-action-secondary:hover{background:#2f2a25} .ds-action-secondary:focus-visible{outline:auto} .ds-action-secondary:active{opacity:.75} .ds-action-secondary:disabled{opacity:.5;cursor:default}"
+    },
+    {
+      "name": "Búsqueda de kits",
+      "kind": "input",
+      "refersTo": "input",
+      "description": "Input y Field existentes. El borde hairline se aproxima a 1 px sólo en este ejemplo HTML; la fuente no fija el grosor universal.",
+      "html": "<label class=\"ds-field\">BUSCAR KITS GUARDADOS<input class=\"ds-search\" placeholder=\"Nombre o notas\" aria-label=\"Buscar kits guardados\"></label>",
+      "css": ".ds-field{display:flex;flex-direction:column;gap:6px;color:#beb9b4;font:700 12px sans-serif;letter-spacing:.5px}.ds-search{background:#2f2a25;border:1px solid #433c35;border-radius:12px;color:#ece7e1;padding:12px 16px;font:400 16px sans-serif;letter-spacing:normal;min-width:0}.ds-search::placeholder{color:#beb9b4}.ds-search:hover{background:#2f2a25}.ds-search:focus-visible{outline:auto}.ds-search:disabled{cursor:default}"
+    },
+    {
+      "name": "Kit seleccionado",
+      "kind": "nav",
+      "refersTo": "saved-kit-selected",
+      "description": "Fila seleccionada de Kits, ejemplo textual; el icono Ionicons de la app se omite en este snippet para no sustituirlo por otra marca.",
+      "html": "<button class=\"ds-kit\" aria-pressed=\"true\"><span class=\"ds-kit-name\">Equipo 00 (ficticio)</span><span class=\"ds-kit-detail\">1 tipo de objeto</span></button>",
+      "css": ".ds-kit{display:flex;flex-direction:column;align-items:flex-start;justify-content:center;gap:2px;min-height:52px;padding:12px;border:0;border-radius:8px;background:#2f2a25;color:#ece7e1;text-align:left;font-family:sans-serif}.ds-kit-name{font-size:14px;font-weight:600;line-height:21px}.ds-kit-detail{font-size:13px;color:#beb9b4;line-height:19px}.ds-kit:hover{background:#2f2a25}.ds-kit:focus-visible{outline:auto}"
+    },
+    {
+      "name": "Resultado de recogida",
+      "kind": "custom",
+      "description": "Fragmento de la comprobación existente, sin tarjeta nueva ni interacción inventada.",
+      "html": "<section class=\"ds-result\"><h2 class=\"ds-result-title\">Lista de recogida</h2><p class=\"ds-result-status\">Hay existencias suficientes para la selección.</p><p class=\"ds-result-help\">Las marcas de recogida son temporales y no mueven ni descuentan objetos.</p></section>",
+      "css": ".ds-result{padding-top:20px;border-top:1px solid #433c35;background:#1c1814;color:#ece7e1}.ds-result-title{margin:0 0 12px;font:700 20px Georgia,serif}.ds-result-status{margin:0 0 12px;color:#6cbf8c;font:600 16px/23px sans-serif}.ds-result-help{margin:0;color:#beb9b4;font:400 13px/19px sans-serif}"
+    },
+    {
+      "name": "Card compartida",
+      "kind": "card",
+      "refersTo": "card",
+      "description": "Primitiva existente inspeccionada en fuente, no presente en las capturas de Kits. Borde hairline aproximado a 1 px en HTML.",
+      "html": "<button class=\"ds-card\">Objeto de ejemplo ficticio</button>",
+      "css": ".ds-card{padding:16px;background:#24201b;color:#ece7e1;border:1px solid #433c35;border-radius:12px;text-align:left;font:400 14px sans-serif}.ds-card:hover{background:#24201b}.ds-card:focus-visible{outline:auto}.ds-card:active{opacity:.7}"
+    },
+    {
+      "name": "Chip",
+      "kind": "chip",
+      "refersTo": "chip",
+      "description": "Chip compartido existente inspeccionado en fuente; no es un filtro añadido a Kits.",
+      "html": "<button class=\"ds-chip\" aria-pressed=\"false\">Ejemplo</button>",
+      "css": ".ds-chip{padding:6px 12px;border:1px solid #433c35;border-radius:999px;background:#2f2a25;color:#beb9b4;font:600 13px sans-serif} .ds-chip:hover{background:#2f2a25} .ds-chip:focus-visible{outline:auto}"
+    },
+    {
+      "name": "Chip seleccionado",
+      "kind": "chip",
+      "description": "Chip compartido existente inspeccionado en fuente; no es un filtro añadido a Kits.",
+      "html": "<button class=\"ds-chip-selected\" aria-pressed=\"true\">Ejemplo</button>",
+      "css": ".ds-chip-selected{padding:6px 12px;border:1px solid #e5913f;border-radius:999px;background:#e5913f;color:#1b1713;font:600 13px sans-serif} .ds-chip-selected:hover{background:#e5913f} .ds-chip-selected:focus-visible{outline:auto}"
+    }
+  ],
+  "narrative": {
+    "northStar": "El inventario cálido",
+    "overview": "Nombre descriptivo del mundo ya construido, no una dirección nueva elegida con el usuario. El fondo marrón oscuro, las superficies cálidas y los encabezados serif dan continuidad a HomeHoard. El ámbar distingue acciones y ubicaciones; los controles sans dejan que los nombres y las cantidades lleven la lectura.\n\nRegistro acotado a `app/kits.tsx`, sus primitivas compartidas y `src/theme.ts` en la fuente aprobada `ed9cc0d2c69067d8e70b2185db2eaaff4e159463` (tarea 1298, revisión 1). Las capturas web `desktop.png` (1280×900), `mobile.png`, `mobile-result.png` y `mobile-error.png` (390×900) de `D:/LocalAI/research-inbox/home-kit-search23/` concuerdan con estos valores. La tercera muestra la parte inferior del contenido. `PEER-REVIEW.md` contiene el veredicto independiente `ship`. Este documento no amplía ese veredicto a otras pantallas: la estrategia de Kits sigue en `.impeccable/surfaces/app-kits-tsx.md`.",
+    "keyCharacteristics": [
+      "Fondo oscuro cálido y superficies planas con bordes discretos.",
+      "Encabezados serif; controles y datos en la tipografía sans de la plataforma.",
+      "Ámbar para acciones principales y rutas de ubicación; texto explícito para los estados."
+    ],
+    "rules": [],
+    "dos": [
+      "**Do** conservar los roles de color y la pareja serif/sans de la fuente existente al ampliar Kits.",
+      "**Do** mantener los estados de selección y resultado legibles mediante texto además del color.",
+      "**Do** conservar el reflujo y las alturas mínimas de las acciones locales al cambiar sus etiquetas."
+    ],
+    "donts": [
+      "**Don't** extender la composición de Kits a otras pantallas como requisito global.",
+      "**Don't** presentar rampas sintéticas o snippets del panel como nuevos tokens o código de producto.",
+      "**Don't** presentar las capturas web de 390 px como validación Android/iOS o del tema claro."
+    ]
+  }
+}
