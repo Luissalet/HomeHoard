@@ -104,5 +104,29 @@ class KitsTest(unittest.TestCase):
         with self.assertRaises(ValueError):inventory.save(broken)
         self.assertEqual(self.app.paths.state.read_bytes(),before)
 
+    def test_search_pages_reach_every_kit_and_leave_inventory_unchanged(self):
+        for index in range(61):
+            self.call(action='save', name=f'Equipo {index:02}', notes='Cámara de montaña' if index % 2 else 'Taller',
+                      requests=[{'item_id':'torch','quantity':1}])
+        state = self.app.paths.state.read_bytes()
+        version = self.app.store.info()['version']
+        first, last = self.call(), self.call(offset=50)
+        self.assertEqual((len(first['kits']), first['total'], first['has_more']), (50,61,True))
+        self.assertEqual((len(last['kits']), last['kits'][-1]['name'], last['has_more']), (11,'Equipo 60',False))
+        self.assertEqual(len({row['id'] for row in first['kits'] + last['kits']}),61)
+        filtered = self.call(q='MONTANA camara', limit=10, offset=20)
+        self.assertEqual((filtered['total'],filtered['all_total'],filtered['has_more']), (30,61,False))
+        self.assertEqual([row['name'] for row in filtered['kits']], [f'Equipo {i:02}' for i in range(41,60,2)])
+        self.assertEqual(self.call(q='equipo 60')['kits'][0]['name'],'Equipo 60')
+        self.assertEqual(self.call(q='sin coincidencias')['total'],0)
+        self.assertEqual(self.call(offset=500)['kits'],[])
+        self.assertEqual((self.app.paths.state.read_bytes(),self.app.store.info()['version']),(state,version))
+
+    def test_search_page_validation_does_not_write(self):
+        self.save(); before = self.app.paths.state.read_bytes()
+        for args in [{'q':'x'*201}, {'offset':-1}, {'offset':True}, {'limit':0}, {'limit':51}, {'limit':1.5}]:
+            with self.subTest(args=args), self.assertRaises(T.ToolError):self.call(**args)
+            self.assertEqual(self.app.paths.state.read_bytes(),before)
+
 
 if __name__=='__main__':unittest.main()

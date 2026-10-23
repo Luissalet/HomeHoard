@@ -8,6 +8,8 @@ A **fully local home inventory**. Record where things live and find them by name
 
 ## Features available now
 
+- **Find every saved kit:** search names and notes without case/accent differences, browse pages, and combine kits from different pages while preserving your editor and visible selection. See [kit search](docs/kits-search.md).
+
 - Editable SVG floor plan with rooms and furniture, zoom, drag, corner resizing and grid snapping.
 - Nested Home › Floor › Room › Furniture › Item hierarchy, including drawers inside other furniture.
 - Quick item entry with a photo, context-selected location, tags, quantity and favorite flag; duplicate warnings and “save and add another”.

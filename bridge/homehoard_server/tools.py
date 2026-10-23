@@ -314,9 +314,18 @@ def t_kits(ctx: Ctx, a: dict[str, Any]) -> dict[str, Any]:
     action = _arg(a, "action", str, "list")
     with ctx.store.lock:
         if action == "list":
-            kits = sorted(ctx.store.alive("packing_kits"), key=lambda r: (MT.fold(r.get("name", "")), r["id"]))
+            query = _arg(a, "q", str, "")
+            offset, limit = _arg(a, "offset", int, 0), _arg(a, "limit", int, 50)
+            if len(query) > 200 or offset < 0 or not 1 <= limit <= 50:
+                raise ToolError("invalid", "q admite hasta 200 caracteres; offset debe ser positivo o cero y limit entre 1 y 50.")
+            all_kits = ctx.store.alive("packing_kits")
+            words = MT.fold(query).split()
+            kits = sorted((r for r in all_kits if all(word in MT.fold(f"{r.get('name', '')} {r.get('notes') or ''}") for word in words)),
+                          key=lambda r: (MT.fold(r.get("name", "")), r["id"]))
             return {"kits": [{"id": r["id"], "name": r["name"], "items": len(r["requests"]),
-                              "updated_at": r["updated_at"]} for r in kits[:50]], "total": len(kits)}
+                              "updated_at": r["updated_at"]} for r in kits[offset:offset + limit]],
+                    "total": len(kits), "all_total": len(all_kits), "q": query, "offset": offset, "limit": limit,
+                    "has_more": offset + limit < len(kits)}
         if action == "get":
             return {"kit": _kit(ctx, _arg(a, "kit", str, required=True))}
         if action == "delete":
@@ -1012,13 +1021,17 @@ TOOLS: list[Tool] = [
                                             "quantity": I("Requested units, a positive integer.", minimum=1)}, ("item_id", "quantity"))}},
               ()), True, t_check_list),
     Tool("home_kits", _d("Save and reuse packing kits; list, read, update or delete their definitions. Guardar listas de equipo.",
-                         "action=list (default), get(kit), save(name,requests,kit optional,notes optional), delete(kit,confirm=true). "
+                         "action=list (default, optional q/offset/limit), get(kit), save(name,requests,kit optional,notes optional), delete(kit,confirm=true). "
+                         "list searches every saved kit by all words in name/notes, ignoring case and accents; default limit50, maximum50, offset0. "
+                         "Returns total matches, all_total saved kits and has_more; follow pages to reach kits beyond the first50. "
                          "save replaces the full list. Repeated saves of the same name reuse its ID; identical saves change nothing. "
                          "Duplicate item IDs are summed. Stock and item locations are unchanged. Check a saved kit with home_check_list(kit). "
                          "Definitions are backed up and synced; this is not a reservation or saved packing progress.",
                          "saved kits, reusable checklist, packing template, guardar kit, listas reutilizables, mochila, equipo de viaje"),
          _obj({"action": S("Operation", enum=["list", "get", "save", "delete"]), "kit": S("Kit ID or unique name"),
                "name": S("Kit name, up to 160 characters"), "notes": S("Optional notes"), "confirm": B("Confirm delete"),
+               "q": S("List: all search words in name/notes, accent-insensitive, up to 200 characters", maxLength=200),
+               "offset": I("List: number of matches to skip", minimum=0), "limit": I("List: page size, default50", minimum=1, maximum=50),
                "requests": {"type": "array", "minItems": 1, "maxItems": 100,
                             "items": _obj({"item_id": S("Inventory object ID"), "quantity": I("Required units", minimum=1)}, ("item_id", "quantity"))}}),
          False, t_kits),

@@ -2,6 +2,7 @@ import type { PackingKit } from '../db/types';
 import { flushLocal, refreshFromServer, uiCall } from './serverApi';
 
 export interface KitSummary { id: string; name: string; items: number; updated_at: number }
+export interface KitPage {kits: KitSummary[]; total: number; all_total: number; q: string; offset: number; limit: number; has_more: boolean}
 export interface CheckedKit {id: string; name: string; updated_at: number}
 export interface PackingRow {
   item_id: string;
@@ -25,7 +26,7 @@ export interface PackingCheck {
   kits?: CheckedKit[];
 }
 
-export const listKits = () => uiCall<{kits: KitSummary[]; total: number}>('home_kits', {action: 'list'});
+export const listKits = (q = '', offset = 0, limit = 50) => uiCall<KitPage>('home_kits', {action: 'list', q, offset, limit});
 export const getKit = (id: string) => uiCall<{kit: PackingKit}>('home_kits', {action: 'get', kit: id});
 export async function saveKit(name: string, notes: string, requests: PackingKit['requests'], id?: string) {
   await flushLocal();

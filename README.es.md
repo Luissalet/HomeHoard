@@ -10,6 +10,8 @@ Funciona sin cuenta ni servicios externos. **El ordenador guarda la casa**: el s
 
 ## Qué hace (ya implementado)
 
+- **Buscar todos los kits guardados:** búsqueda por nombre y notas sin distinguir acentos o mayúsculas, páginas y selección de kits de distintas páginas sin perder el editor. Consulta [la guía de búsqueda](docs/kits-search.md).
+
 - **Mapa 2D** de la planta con habitaciones y muebles (SVG), zoom y navegación por toques.
 - **Plano editable** ✏️: arrastra habitaciones y muebles para recolocarlos y tira de la esquina para redimensionar, con snap a rejilla.
 - **Inventario jerárquico**: Vivienda › Planta › Habitación › Mueble (anidable: cajón dentro de armario) › Objeto.

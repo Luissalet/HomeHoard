@@ -6,7 +6,8 @@ import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, useWindowDi
 import { useData } from '../src/db/provider';
 import { normalizeText, rankSearch } from '../src/db/searchUtil';
 import { useSyncStatus } from '../src/db/useSync';
-import { checkKits, checkPacking, deleteKit, getKit, listKits, saveKit, type PackingCheck } from '../src/features/packingKits';
+import { checkKits, checkPacking, deleteKit, getKit, listKits, saveKit, type KitSummary, type PackingCheck } from '../src/features/packingKits';
+import { reconcileKitSelection } from '../src/features/kitSelection';
 import { colors, fonts, radius, space } from '../src/theme';
 import { Input } from '../src/ui/components';
 import { Field } from '../src/ui/form';
@@ -14,10 +15,10 @@ import { useToast } from '../src/ui/ToastProvider';
 
 type RequestRow = {item_id: string; quantity: string};
 
-function Action({label, onPress, disabled, primary, danger}: {
-  label: string; onPress: () => void; disabled?: boolean; primary?: boolean; danger?: boolean;
+function Action({label, accessibilityLabel, onPress, disabled, primary, danger}: {
+  label: string; accessibilityLabel?: string; onPress: () => void; disabled?: boolean; primary?: boolean; danger?: boolean;
 }) {
-  return <Pressable accessibilityRole="button" accessibilityLabel={label} aria-disabled={!!disabled}
+  return <Pressable accessibilityRole="button" accessibilityLabel={accessibilityLabel || label} aria-disabled={!!disabled}
     disabled={disabled} onPress={onPress} style={({pressed}) => [styles.action, primary && styles.primary,
       disabled && {opacity: 0.5}, pressed && {opacity: 0.75}]}>
     <Text style={[styles.actionText, primary && {color: colors.onAccent}, danger && {color: colors.danger}]}>{label}</Text>
@@ -28,12 +29,15 @@ export default function KitsScreen() {
   const data = useData(), router = useRouter(), qc = useQueryClient(), toast = useToast();
   const sync = useSyncStatus(), {width} = useWindowDimensions();
   const connected = sync.mode === 'online';
-  const kits = useQuery({queryKey: ['packingKits', sync.version], enabled: connected, queryFn: listKits});
+  const [kitQuery, setKitQuery] = useState(''), [kitOffset, setKitOffset] = useState(0);
+  const pageSize = 10;
+  const kits = useQuery({queryKey: ['packingKits', sync.version, kitQuery, kitOffset], enabled: connected,
+    queryFn: () => listKits(kitQuery, kitOffset, pageSize)});
   const inventory = useQuery({queryKey: ['kitInventory'], queryFn: () => data.searchItems('')});
   const [kitId, setKitId] = useState<string | null>(null);
   const [name, setName] = useState(''), [notes, setNotes] = useState(''), [search, setSearch] = useState('');
   const [requests, setRequests] = useState<RequestRow[]>([]);
-  const [combining, setCombining] = useState(false), [selectedKits, setSelectedKits] = useState<string[]>([]);
+  const [combining, setCombining] = useState(false), [selectedKits, setSelectedKits] = useState<KitSummary[]>([]);
   const [check, setCheck] = useState<PackingCheck | null>(null);
   const [collected, setCollected] = useState<Record<string, boolean>>({});
   const [busy, setBusy] = useState(false), [error, setError] = useState(''), [confirmDelete, setConfirmDelete] = useState(false);
@@ -41,12 +45,12 @@ export default function KitsScreen() {
   const [checkTop, setCheckTop] = useState(0);
   useEffect(() => {
     if (!kits.data) return;
-    const visible = new Set(kits.data.kits.map(kit => kit.id));
-    const retained = selectedKits.filter(id => visible.has(id));
-    if (retained.length !== selectedKits.length) {
+    const complete = !kitQuery.trim() && kitOffset === 0 && kits.data.total <= kits.data.kits.length;
+    const retained = reconcileKitSelection(selectedKits, kits.data.kits, complete);
+    if (retained !== selectedKits) {
       setSelectedKits(retained); setCheck(null); setCollected({});
     }
-  }, [kits.data, selectedKits]);
+  }, [kits.data, selectedKits, kitQuery, kitOffset]);
   useEffect(() => {if (check && checkTop) scroll.current?.scrollTo({y: Math.max(0, checkTop - 12), animated: false});}, [check, checkTop]);
   const items = inventory.data || [];
   const itemById = useMemo(() => new Map(items.map(item => [item.id, item])), [items]);
@@ -83,9 +87,11 @@ export default function KitsScreen() {
     toast(result.status === 'unchanged' ? 'El kit ya estaba guardado' : 'Kit guardado');
   });
   const inspect = () => run(async () => {setCheck(await checkPacking(requestValues())); setCollected({});});
-  const inspectKits = () => run(async () => {clearCheck(); setCheck(await checkKits(selectedKits));});
-  function toggleKit(id: string) {
-    setSelectedKits(selectedKits.includes(id) ? selectedKits.filter(value => value !== id) : [...selectedKits, id]);
+  const inspectKits = () => run(async () => {clearCheck(); setCheck(await checkKits(selectedKits.map(kit => kit.id)));});
+  function toggleKit(kit: KitSummary) {
+    const exists = selectedKits.some(value => value.id === kit.id);
+    if (!exists && selectedKits.length >= 50) {setError('Puedes combinar hasta 50 kits a la vez. Quita alguno de la selección para añadir otro.'); return;}
+    setSelectedKits(exists ? selectedKits.filter(value => value.id !== kit.id) : [...selectedKits, kit]);
     clearCheck(); setError('');
   }
   const remove = () => run(async () => {
@@ -105,26 +111,36 @@ export default function KitsScreen() {
     <View style={[styles.columns, width >= 850 && styles.wide]}>
       <View style={[styles.saved, width >= 850 && {width: 245}]}>
         <Text accessibilityRole="header" style={styles.section}>Kits guardados</Text>
-        <Action label={combining ? 'Volver al editor' : 'Combinar kits'} disabled={!editable || !kits.data?.kits.length}
+        <Field label="Buscar kits guardados"><Input accessibilityLabel="Buscar kits guardados" value={kitQuery} maxLength={200}
+          editable={editable} placeholder="Nombre o notas" onChangeText={value => {setKitQuery(value); setKitOffset(0);}}/></Field>
+        {!!kitQuery && <Action label="Limpiar búsqueda de kits" disabled={!editable} onPress={() => {setKitQuery(''); setKitOffset(0);}}/>}
+        <Action label={combining ? 'Volver al editor' : 'Combinar kits'} disabled={!editable || (!kits.data?.kits.length && !selectedKits.length)}
           onPress={() => {setCombining(!combining); clearCheck(); setError('');}}/>
         {kits.isLoading && <Text style={styles.help}>Cargando kits…</Text>}
-        {kits.error && <Text style={styles.error}>{kits.error.message}</Text>}
-        {connected && !kits.isLoading && !kits.error && !kits.data?.kits.length && <Text style={styles.help}>Aún no hay kits. Elige los objetos y guarda tu primera lista.</Text>}
+        {kits.error && <><Text accessibilityRole="alert" style={styles.error}>{kits.error.message}</Text><Action label="Reintentar lista de kits" disabled={!editable || kits.isFetching} onPress={() => {void kits.refetch();}}/></>}
+        {connected && !kits.isLoading && !kits.error && !kits.data?.kits.length && <Text style={styles.help}>{kitQuery.trim() ? 'No hay kits que coincidan con la búsqueda. Prueba otro nombre o una nota.' : kitOffset ? 'Esta página ya no tiene kits. Vuelve a la anterior o limpia la búsqueda.' : 'Aún no hay kits. Elige los objetos y guarda tu primera lista.'}</Text>}
         {kits.data?.kits.map(kit => <Pressable key={kit.id} accessibilityRole={combining ? 'checkbox' : 'button'}
           accessibilityLabel={combining ? `Incluir ${kit.name}` : undefined}
-          {...(combining ? {'aria-checked': selectedKits.includes(kit.id)} : {'aria-selected': kit.id === kitId})} aria-disabled={!editable}
-          disabled={!editable} onPress={() => combining ? toggleKit(kit.id) : load(kit.id)} style={[styles.kitRow, (combining ? selectedKits.includes(kit.id) : kit.id === kitId) && styles.selectedKit]}>
-          <Ionicons name={combining ? selectedKits.includes(kit.id) ? 'checkbox' : 'square-outline' : 'bag-handle-outline'} color={(combining ? selectedKits.includes(kit.id) : kit.id === kitId) ? colors.accent : colors.textDim} size={20}/>
+          {...(combining ? {'aria-checked': selectedKits.some(value => value.id === kit.id)} : {'aria-selected': kit.id === kitId})} aria-disabled={!editable}
+          disabled={!editable} onPress={() => combining ? toggleKit(kit) : load(kit.id)} style={[styles.kitRow, (combining ? selectedKits.some(value => value.id === kit.id) : kit.id === kitId) && styles.selectedKit]}>
+          <Ionicons name={combining ? selectedKits.some(value => value.id === kit.id) ? 'checkbox' : 'square-outline' : 'bag-handle-outline'} color={(combining ? selectedKits.some(value => value.id === kit.id) : kit.id === kitId) ? colors.accent : colors.textDim} size={20}/>
           <View style={{flex: 1}}><Text style={styles.itemName}>{kit.name}</Text><Text style={styles.help}>{kit.items} {kit.items === 1 ? 'tipo' : 'tipos'} de objeto</Text></View>
         </Pressable>)}
-        {kits.data && kits.data.total > kits.data.kits.length && <Text style={styles.help}>Se muestran {kits.data.kits.length} de {kits.data.total} kits. Puedes acceder al resto desde Faustus.</Text>}
+        {kits.data && <Text accessibilityLiveRegion="polite" style={styles.help}>{kits.data.kits.length ? `${kitOffset + 1}–${kitOffset + kits.data.kits.length} de ${kits.data.total}` : `0 de ${kits.data.total}`} kits{kitQuery.trim() ? ' encontrados' : ' guardados'}</Text>}
+        <View style={styles.actions}>
+          <Action label="Anteriores" accessibilityLabel="Kits anteriores" disabled={!editable || kits.isFetching || kitOffset === 0} onPress={() => setKitOffset(Math.max(0, kitOffset - pageSize))}/>
+          <Action label="Siguientes" accessibilityLabel="Kits siguientes" disabled={!editable || kits.isFetching || !kits.data?.has_more} onPress={() => setKitOffset(kitOffset + pageSize)}/>
+        </View>
+        {kitId && !kits.data?.kits.some(kit => kit.id === kitId) && <Text style={styles.help}>El kit abierto sigue en el editor aunque no aparezca en esta página.</Text>}
       </View>
       {combining ? <View style={styles.editor}>
         <Text accessibilityRole="header" style={styles.section}>Preparar varios kits</Text>
         <Text style={styles.help}>Selecciona los kits que necesitas a la vez. Los objetos compartidos se suman y se comparan con las mismas existencias.</Text>
         <Text accessibilityLiveRegion="polite" style={styles.itemName}>Kits seleccionados: {selectedKits.length}</Text>
         {!selectedKits.length && <Text style={styles.help}>Marca al menos un kit de la lista para comprobar el conjunto.</Text>}
-        {kits.data?.kits.filter(kit => selectedKits.includes(kit.id)).map(kit => <Text key={kit.id} style={styles.help}>{kit.name}</Text>)}
+        {selectedKits.map(kit => <View key={kit.id} style={styles.selectionRow}><Text style={[styles.help, {flex: 1, minWidth: 100}]}>{kit.name}</Text>
+          <Action label="Quitar" accessibilityLabel={`Quitar ${kit.name} de la selección`} disabled={!editable} onPress={() => toggleKit(kit)}/></View>)}
+        {!!selectedKits.length && <Text style={styles.help}>La selección se conserva al buscar o cambiar de página. Puedes combinar hasta 50 kits.</Text>}
         <View style={styles.actions}><Action label="Comprobar selección" primary onPress={inspectKits} disabled={!editable || !selectedKits.length}/></View>
         {error ? <Text accessibilityRole="alert" style={styles.error}>{error}</Text> : null}
         <Text style={styles.help}>Se usan las versiones guardadas de los kits. Tu borrador del editor se conserva al volver. Esta consulta no reserva ni descuenta objetos.</Text>
@@ -197,6 +213,7 @@ const styles = StyleSheet.create({
   busy: {flexDirection: 'row', gap: space(3), alignItems: 'center'},
   columns: {gap: space(6)}, wide: {flexDirection: 'row', alignItems: 'flex-start'},
   saved: {gap: space(2)}, editor: {flex: 1, gap: space(4), minWidth: 0},
+  selectionRow: {flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: space(2)},
   section: {fontFamily: fonts.serif, color: colors.text, fontSize: 20, fontWeight: '700'},
   sectionHeading: {flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', gap: space(2), alignItems: 'center', marginTop: space(2)},
   kitRow: {flexDirection: 'row', alignItems: 'center', gap: space(3), padding: space(3), minHeight: 52, borderRadius: radius.sm},
@@ -207,7 +224,7 @@ const styles = StyleSheet.create({
   iconButton: {minWidth: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center'},
   searchRow: {flexDirection: 'row', alignItems: 'center', minHeight: 52, paddingVertical: space(2), gap: space(3), borderBottomWidth: StyleSheet.hairlineWidth, borderColor: colors.border},
   actions: {flexDirection: 'row', flexWrap: 'wrap', gap: space(3), marginTop: space(2)},
-  action: {minHeight: 44, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: colors.border, borderRadius: radius.sm, paddingHorizontal: space(3), backgroundColor: colors.surface2},
+  action: {minHeight: 48, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: colors.border, borderRadius: radius.sm, paddingHorizontal: space(3), backgroundColor: colors.surface2},
   primary: {backgroundColor: colors.accent, borderColor: colors.accent},
   actionText: {color: colors.text, fontWeight: '600', fontSize: 13},
   check: {marginTop: space(3), paddingTop: space(5), gap: space(3), borderTopWidth: 1, borderColor: colors.border},
