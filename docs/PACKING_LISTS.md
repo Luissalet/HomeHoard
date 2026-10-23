@@ -101,6 +101,9 @@ The result shows the combined shortage, locations and the contribution of each
 kit. It uses saved versions, preserves an unsaved editor draft when returning,
 and resets the result and temporary collection marks when the selection changes.
 The check creates no reservation, saved combination or packing history.
+Starting a new kit or deleting one resets the selection. When the saved list
+refreshes, kits no longer visible in it are removed from the selection, so an
+invisible ID cannot block the next check.
 
 Design references: [ZenPak's reusable gear and packing lists](https://github.com/zenpakapp/zenpak)
 and [HomeInventory's inventory-linked lists](https://github.com/asdteke/HomeInventory).

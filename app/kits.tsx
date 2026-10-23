@@ -39,6 +39,14 @@ export default function KitsScreen() {
   const [busy, setBusy] = useState(false), [error, setError] = useState(''), [confirmDelete, setConfirmDelete] = useState(false);
   const scroll = useRef<ScrollView>(null);
   const [checkTop, setCheckTop] = useState(0);
+  useEffect(() => {
+    if (!kits.data) return;
+    const visible = new Set(kits.data.kits.map(kit => kit.id));
+    const retained = selectedKits.filter(id => visible.has(id));
+    if (retained.length !== selectedKits.length) {
+      setSelectedKits(retained); setCheck(null); setCollected({});
+    }
+  }, [kits.data, selectedKits]);
   useEffect(() => {if (check && checkTop) scroll.current?.scrollTo({y: Math.max(0, checkTop - 12), animated: false});}, [check, checkTop]);
   const items = inventory.data || [];
   const itemById = useMemo(() => new Map(items.map(item => [item.id, item])), [items]);
@@ -55,6 +63,7 @@ export default function KitsScreen() {
   }
   function startNew() {
     setCombining(false);
+    setSelectedKits([]);
     setKitId(null); setName(''); setNotes(''); setRequests([]); setSearch(''); setError(''); setConfirmDelete(false); clearCheck();
     scroll.current?.scrollTo({y: 0, animated: false});
   }
