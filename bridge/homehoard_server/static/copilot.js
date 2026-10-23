@@ -15,7 +15,7 @@
   var MAX_ITEMS = 25, MAX_ROWS = 20, MAX_TASKS = 8;
 
   var PAGES = { '/': 'home', '/plan': 'plan', '/search': 'search', '/maintenance': 'maintenance', '/settings': 'settings',
-                '/add': 'add', '/scan': 'scan', '/importar': 'import' };
+                '/add': 'add', '/scan': 'scan', '/importar': 'import', '/kits': 'kits' };
 
   function clip(text, n) {
     text = String(text == null ? '' : text);
@@ -36,7 +36,7 @@
   function indexTables(tables) {
     var t = tables || {};
     var ix = { homes: byId(t.homes), floors: byId(t.floors), rooms: byId(t.rooms), containers: byId(t.containers), items: byId(t.items),
-               tags: byId(t.tags), details: {}, itemTags: alive(t.itemTags), tasks: alive(t.maintenance_tasks) };
+               tags: byId(t.tags), details: {}, itemTags: alive(t.itemTags), tasks: alive(t.maintenance_tasks), kits: byId(t.packing_kits) };
     alive(t.item_details).forEach(function (d) { ix.details[d.item_id] = d; });
     return ix;
   }
@@ -282,6 +282,14 @@
           home = homeOfRoom(local, route.page === 'room' ? localRow : local.rooms[localRow.room_id]) || home;
         }
       }
+    } else if (route.page === 'kits') {
+      var kits = Object.keys(ix.kits).map(function (id) { return ix.kits[id]; });
+      view.summary = { kits: kits.slice(0, MAX_ROWS).map(function (kit) {
+        return {id: kit.id, name: kit.name, items: kit.requests.length};
+      }), total: kits.length };
+      var kit = ix.kits[state.kitId];
+      if (kit) objects.push({kind: 'packing_kit', object_id: kit.id, title: kit.name, requests: kit.requests, notes: kit.notes});
+      view.collected_item_ids = (state.collected || []).filter(function (id) { return !!ix.items[id]; });
     } else if (route.page === 'maintenance') {
       view.summary = maintenanceSummary(ix, state.today);
     } else if (route.page === 'home' || route.page === 'plan' || route.page === 'search' || route.page === 'settings') {
@@ -347,11 +355,18 @@
       // One turn keeps the view and its pending fields even if navigation happens during the read.
       var path = root.location.pathname;
       var forms = readForms(visibleInputs());
+      var kitId = null, collected = [];
+      if (parseRoute(path).page === 'kits') {
+        var marker = root.document.querySelector('[data-testid^="packing-kit-"]');
+        if (marker) kitId = marker.getAttribute('data-testid').slice('packing-kit-'.length);
+        collected = Array.prototype.slice.call(root.document.querySelectorAll('[data-testid^="collected-"][aria-checked="true"]'))
+          .map(function (node) { return node.getAttribute('data-testid').slice('collected-'.length); });
+      }
       var day = today(), title = heading(), local = null;
       try { local = JSON.parse(root.localStorage.getItem('homehoard.v1')); } catch (e) { /* no offline store */ }
       var data = null;
       try { data = await tables(); } catch (e) { /* the computer may be closed: the page's own title and forms still go */ }
-      return buildContext({ path: path, tables: data, localTables: local, inputs: null, forms: forms, today: day, heading: title });
+      return buildContext({ path: path, tables: data, localTables: local, inputs: null, forms: forms, today: day, heading: title, kitId: kitId, collected: collected });
     } catch (e) {
       return { active_objects: [], view: { page: 'unknown' } };
     }

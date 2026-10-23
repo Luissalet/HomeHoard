@@ -85,6 +85,12 @@ class KitsTest(unittest.TestCase):
             self.assertEqual(status,200)
             status,checked=post(url+'/api/agent/call',{'tool':'home_check_list','arguments':{'kit':'HTTP'}},headers)
             self.assertEqual(status,200);self.assertEqual(checked['missing_total'],1)
+            before = self.app.store.tables()['items']
+            status,ui=post(url+'/api/ui/call',{'tool':'home_check_list','arguments':{'kit':saved['kit']['id']}})
+            self.assertEqual(status,200);self.assertEqual(ui,checked)
+            status,loaded=post(url+'/api/ui/call',{'tool':'home_kits','arguments':{'action':'get','kit':saved['kit']['id']}})
+            self.assertEqual(status,200);self.assertEqual(loaded['kit'],saved['kit'])
+            self.assertEqual(self.app.store.tables()['items'],before)
 
     def test_invalid_backup_cannot_replace_a_valid_definition(self):
         self.save();before=self.app.paths.state.read_bytes()

@@ -183,3 +183,15 @@ test('a manual search alone is its own editor; other typed fields are never lost
 test('with no data at all the page still answers', () => {
   assert.deepEqual(plain(cp.buildContext()), { active_objects: [], view: { page: 'home', summary: { items: 0, containers: 0, rooms: [] } } });
 });
+
+test('kits context includes the saved definition, pending fields and visible collection marks', () => {
+  const kit = row('weekend', 'Fin de semana', {requests: [{item_id: 'torch', quantity: 2}], notes: 'Pilas cargadas'});
+  const tables = {...TABLES, packing_kits: [kit]};
+  const context = plain(cp.buildContext({path: '/kits', tables, kitId: 'weekend', collected: ['torch', 'missing'],
+    forms: {other: {'Nombre del kit': 'Nuevo nombre pendiente'}}}));
+  assert.equal(context.view.page, 'kits');
+  assert.deepEqual(context.active_objects, [{kind: 'packing_kit', object_id: 'weekend', title: kit.name, requests: kit.requests, notes: kit.notes}]);
+  assert.deepEqual(context.view.collected_item_ids, ['torch']);
+  assert.equal(context.view.editor.fields['Nombre del kit'], 'Nuevo nombre pendiente');
+  assert.deepEqual(plain(cp.buildContext({path: '/kits', tables, kitId: 'new'})).active_objects, []);
+});

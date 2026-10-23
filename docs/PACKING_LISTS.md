@@ -66,14 +66,20 @@ current stock/location in one snapshot. Its response also includes `kit.id`,
 Missing/deleted object IDs remain in the definition and produce `not_found`
 with unknown quantities on a check. This supports correcting a kit later
 without silently substituting another object. Renaming or correcting a kit
-does not move objects, reserve them or deduct stock. Packing checkmarks and
-packing-run history are not implemented.
+does not move objects, reserve them or deduct stock. The connected web editor
+has temporary collection checkmarks; no packing-run history is stored.
 
 Kits use the normal record merge (`updated_at`, tombstone wins an exact tie),
 web sync and version **4** portable backups. Versions 1–3 remain importable.
 The native SQLite adapter retains kit records through import/export; mobile
-still exchanges JSON rather than syncing with the computer. There is no kit
-editor in the web/mobile interface yet: manage definitions from Faustus.
+still exchanges JSON rather than syncing with the computer. In the connected
+web app, Home → **Prepare a kit** opens `/kits`. Search inventory objects, edit
+quantities and notes, save or reopen a kit, and check the draft without saving.
+The result shows the current recorded stock, deficits and full locations.
+Collection checkmarks count the available units, including the available part
+of a shortage. Missing objects cannot be marked as collected. A new check or
+edited requirements resets the marks; stock and saved definitions stay intact.
+The editor needs the computer connection and says so when it is unavailable.
 
 Design references: [ZenPak's reusable gear and packing lists](https://github.com/zenpakapp/zenpak)
 and [HomeInventory's inventory-linked lists](https://github.com/asdteke/HomeInventory).
@@ -93,11 +99,18 @@ plantilla reutilizable, usa `home_kits` con `action=save`, nombre y lista
 completa; después `home_check_list(kit=nombre_o_id)` vuelve a comprobarla.
 Las plantillas se conservan en la sincronización web y las copias versión 4;
 el móvil conserva las definiciones al intercambiar JSON. Se gestionan desde
-Faustus: no hay editor de kits ni progreso de preparación en la interfaz.
+Faustus o desde Inicio → **Preparar un kit** en la web conectada. El editor
+permite buscar objetos, ajustar cantidades y notas, guardar listas y comprobar
+existencias y ubicaciones. Las marcas de recogida son temporales: no descuentan
+stock y se reinician al cambiar lo solicitado o volver a comprobar. El móvil
+nativo conserva el intercambio JSON; el editor necesita el ordenador conectado.
 
 ## References
 
 The workflow draws on equipment-library and packing-list patterns documented by
 [ZenPak](https://github.com/zenpakapp/zenpak) and inventory-linked lists in
 [HomeInventory](https://github.com/asdteke/HomeInventory). This implementation is
-original; no upstream code or assets are included.
+original; no upstream code or assets are included. The connected editor also
+uses the reusable-kit pattern documented in the [official asset-management
+feature list](https://snipeitapp.com/product), without importing its code or
+introducing asset assignment or checkout in HomeHoard.
