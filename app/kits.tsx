@@ -6,7 +6,7 @@ import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, useWindowDi
 import { useData } from '../src/db/provider';
 import { normalizeText, rankSearch } from '../src/db/searchUtil';
 import { useSyncStatus } from '../src/db/useSync';
-import { checkPacking, deleteKit, getKit, listKits, saveKit, type PackingCheck } from '../src/features/packingKits';
+import { checkKits, checkPacking, deleteKit, getKit, listKits, saveKit, type PackingCheck } from '../src/features/packingKits';
 import { colors, fonts, radius, space } from '../src/theme';
 import { Input } from '../src/ui/components';
 import { Field } from '../src/ui/form';
@@ -33,6 +33,7 @@ export default function KitsScreen() {
   const [kitId, setKitId] = useState<string | null>(null);
   const [name, setName] = useState(''), [notes, setNotes] = useState(''), [search, setSearch] = useState('');
   const [requests, setRequests] = useState<RequestRow[]>([]);
+  const [combining, setCombining] = useState(false), [selectedKits, setSelectedKits] = useState<string[]>([]);
   const [check, setCheck] = useState<PackingCheck | null>(null);
   const [collected, setCollected] = useState<Record<string, boolean>>({});
   const [busy, setBusy] = useState(false), [error, setError] = useState(''), [confirmDelete, setConfirmDelete] = useState(false);
@@ -53,6 +54,7 @@ export default function KitsScreen() {
     finally { setBusy(false); }
   }
   function startNew() {
+    setCombining(false);
     setKitId(null); setName(''); setNotes(''); setRequests([]); setSearch(''); setError(''); setConfirmDelete(false); clearCheck();
     scroll.current?.scrollTo({y: 0, animated: false});
   }
@@ -72,6 +74,11 @@ export default function KitsScreen() {
     toast(result.status === 'unchanged' ? 'El kit ya estaba guardado' : 'Kit guardado');
   });
   const inspect = () => run(async () => {setCheck(await checkPacking(requestValues())); setCollected({});});
+  const inspectKits = () => run(async () => {clearCheck(); setCheck(await checkKits(selectedKits));});
+  function toggleKit(id: string) {
+    setSelectedKits(selectedKits.includes(id) ? selectedKits.filter(value => value !== id) : [...selectedKits, id]);
+    clearCheck(); setError('');
+  }
   const remove = () => run(async () => {
     await deleteKit(kitId!); startNew(); await qc.invalidateQueries({queryKey: ['packingKits']}); toast('Kit borrado');
   });
@@ -84,22 +91,35 @@ export default function KitsScreen() {
       <Action label="Nuevo kit" onPress={startNew} disabled={busy}/>
     </View>
     {!connected && <Text style={styles.notice}>Los kits se guardan en el ordenador. Abre HomeHoard conectado para crear listas y comprobar sus existencias. Tu inventario local sigue disponible.</Text>}
-    {error ? <Text accessibilityRole="alert" style={styles.error}>{error}</Text> : null}
-    {busy && <View style={styles.busy}><ActivityIndicator color={colors.accent}/><Text style={styles.help}>Actualizando el kit…</Text></View>}
+    {error && !combining ? <Text accessibilityRole="alert" style={styles.error}>{error}</Text> : null}
+    {busy && <View style={styles.busy}><ActivityIndicator color={colors.accent}/><Text style={styles.help}>Procesando la lista…</Text></View>}
     <View style={[styles.columns, width >= 850 && styles.wide]}>
       <View style={[styles.saved, width >= 850 && {width: 245}]}>
         <Text accessibilityRole="header" style={styles.section}>Kits guardados</Text>
+        <Action label={combining ? 'Volver al editor' : 'Combinar kits'} disabled={!editable || !kits.data?.kits.length}
+          onPress={() => {setCombining(!combining); clearCheck(); setError('');}}/>
         {kits.isLoading && <Text style={styles.help}>Cargando kits…</Text>}
         {kits.error && <Text style={styles.error}>{kits.error.message}</Text>}
         {connected && !kits.isLoading && !kits.error && !kits.data?.kits.length && <Text style={styles.help}>Aún no hay kits. Elige los objetos y guarda tu primera lista.</Text>}
-        {kits.data?.kits.map(kit => <Pressable key={kit.id} accessibilityRole="button" aria-selected={kit.id === kitId} aria-disabled={!editable}
-          disabled={!editable} onPress={() => load(kit.id)} style={[styles.kitRow, kit.id === kitId && styles.selectedKit]}>
-          <Ionicons name="bag-handle-outline" color={kit.id === kitId ? colors.accent : colors.textDim} size={20}/>
+        {kits.data?.kits.map(kit => <Pressable key={kit.id} accessibilityRole={combining ? 'checkbox' : 'button'}
+          accessibilityLabel={combining ? `Incluir ${kit.name}` : undefined}
+          {...(combining ? {'aria-checked': selectedKits.includes(kit.id)} : {'aria-selected': kit.id === kitId})} aria-disabled={!editable}
+          disabled={!editable} onPress={() => combining ? toggleKit(kit.id) : load(kit.id)} style={[styles.kitRow, (combining ? selectedKits.includes(kit.id) : kit.id === kitId) && styles.selectedKit]}>
+          <Ionicons name={combining ? selectedKits.includes(kit.id) ? 'checkbox' : 'square-outline' : 'bag-handle-outline'} color={(combining ? selectedKits.includes(kit.id) : kit.id === kitId) ? colors.accent : colors.textDim} size={20}/>
           <View style={{flex: 1}}><Text style={styles.itemName}>{kit.name}</Text><Text style={styles.help}>{kit.items} {kit.items === 1 ? 'tipo' : 'tipos'} de objeto</Text></View>
         </Pressable>)}
         {kits.data && kits.data.total > kits.data.kits.length && <Text style={styles.help}>Se muestran {kits.data.kits.length} de {kits.data.total} kits. Puedes acceder al resto desde Faustus.</Text>}
       </View>
-      <View style={styles.editor} testID={`packing-kit-${kitId || 'new'}`}>
+      {combining ? <View style={styles.editor}>
+        <Text accessibilityRole="header" style={styles.section}>Preparar varios kits</Text>
+        <Text style={styles.help}>Selecciona los kits que necesitas a la vez. Los objetos compartidos se suman y se comparan con las mismas existencias.</Text>
+        <Text accessibilityLiveRegion="polite" style={styles.itemName}>Kits seleccionados: {selectedKits.length}</Text>
+        {!selectedKits.length && <Text style={styles.help}>Marca al menos un kit de la lista para comprobar el conjunto.</Text>}
+        {kits.data?.kits.filter(kit => selectedKits.includes(kit.id)).map(kit => <Text key={kit.id} style={styles.help}>{kit.name}</Text>)}
+        <View style={styles.actions}><Action label="Comprobar selección" primary onPress={inspectKits} disabled={!editable || !selectedKits.length}/></View>
+        {error ? <Text accessibilityRole="alert" style={styles.error}>{error}</Text> : null}
+        <Text style={styles.help}>Se usan las versiones guardadas de los kits. Tu borrador del editor se conserva al volver. Esta consulta no reserva ni descuenta objetos.</Text>
+      </View> : <View style={styles.editor} testID={`packing-kit-${kitId || 'new'}`}>
         <Text accessibilityRole="header" style={styles.section}>{kitId ? 'Editar kit' : 'Preparar un kit'}</Text>
         <Field label="Nombre del kit"><Input accessibilityLabel="Nombre del kit" value={name} onChangeText={setName} editable={editable} maxLength={160} placeholder="Por ejemplo: equipo de fin de semana"/></Field>
         <Field label="Notas"><Input accessibilityLabel="Notas del kit" value={notes} onChangeText={setNotes} editable={editable} multiline placeholder="Recordatorios para preparar este equipo" style={{minHeight: 65}}/></Field>
@@ -132,12 +152,13 @@ export default function KitsScreen() {
           {kitId && <Action label={confirmDelete ? 'Confirmar borrado' : 'Borrar kit'} danger disabled={!editable} onPress={() => confirmDelete ? remove() : setConfirmDelete(true)}/>}
           {confirmDelete && <Action label="Cancelar borrado" onPress={() => setConfirmDelete(false)} disabled={busy}/>}
         </View>
-      </View>
+      </View>}
     </View>
     {check && <View style={styles.check} onLayout={event => setCheckTop(event.nativeEvent.layout.y)}>
       <Text accessibilityRole="header" style={styles.section}>Lista de recogida</Text>
+      {check.kits && <Text style={styles.help}>Conjunto de {check.kits.length} {check.kits.length === 1 ? 'kit' : 'kits'}: {check.kits.map(kit => kit.name).join(' · ')}</Text>}
       <Text style={[styles.verdict, {color: check.ready ? colors.good : colors.warn}]}>
-        {!check.totals_complete ? 'El inventario no permite confirmar todas las cantidades.' : check.ready ? 'Hay existencias suficientes para el kit.' : check.missing_total === 1 ? 'Falta 1 unidad para completar el kit.' : `Faltan ${check.missing_total} unidades para completar el kit.`}
+        {!check.totals_complete ? 'El inventario no permite confirmar todas las cantidades.' : check.ready ? `Hay existencias suficientes para ${check.kits ? 'la selección' : 'el kit'}.` : `Falta${check.missing_total === 1 ? '' : 'n'} ${check.missing_total} unidad${check.missing_total === 1 ? '' : 'es'} para completar ${check.kits ? 'la selección' : 'el kit'}.`}
       </Text>
       <Text style={styles.help}>Comprobación del inventario · versión {check.inventory_version}. Las marcas de recogida son temporales y no mueven ni descuentan objetos. Una nueva comprobación reinicia las marcas.</Text>
       <Text accessibilityLiveRegion="polite" style={styles.progress}>{check.totals_complete ? `${gathered} de ${check.to_pack_total} unidades recogidas` : `${gathered} unidades verificadas recogidas; el total sigue incompleto`}</Text>
@@ -148,7 +169,8 @@ export default function KitsScreen() {
           <Ionicons name={collected[item.item_id] ? 'checkbox' : 'square-outline'} size={25} color={collected[item.item_id] ? colors.good : colors.textDim}/>
         </Pressable>
         <View style={{flex: 1}}><Text style={styles.itemName}>{item.name || `Objeto no disponible: ${item.item_id}`}</Text><Text style={styles.location}>{item.location || 'Ubicación no disponible'}</Text>
-          <Text style={styles.help}>Necesitas {item.requested} · Registrados {item.available ?? 'sin dato'} · Puedes recoger {item.to_pack ?? 'sin dato'} · Faltan {item.missing ?? 'sin dato'}</Text></View>
+          <Text style={styles.help}>Necesitas {item.requested} · Registrados {item.available ?? 'sin dato'} · Puedes recoger {item.to_pack ?? 'sin dato'} · Faltan {item.missing ?? 'sin dato'}</Text>
+          {item.kits?.map(kit => <Text key={kit.id} style={styles.help}>{kit.name}: {kit.quantity} {kit.quantity === 1 ? 'unidad' : 'unidades'}</Text>)}</View>
         {item.status !== 'not_found' && <Action label="Ver objeto" onPress={() => router.push(`/item/${item.item_id}`)}/>}
       </View>)}
     </View>}

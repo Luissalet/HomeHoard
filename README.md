@@ -112,6 +112,12 @@ License: AGPL-3.0-or-later.
 
 ## Reusable packing kits
 
+Prepare several saved kits together with **Combinar kits** in `/kits` or
+`home_check_list(kits=[id_or_name,...])` through Faustus/MCP. Shared object
+quantities are summed before comparing with the same stock; each row shows
+which kits need it. Repeated references to the same kit count once. The check
+uses saved definitions, preserves the editor draft and reserves no stock.
+
 `home_kits` saves, lists, reads and deletes named kit definitions. Saving the same name reuses its ID; identical saves change nothing. `home_check_list(kit="Weekend trip")` checks current stock and full locations, including changed quantities and missing objects. Saving a kit changes no object quantity or location. Definitions survive web sync and version 4 backups, including native SQLite import/export; the phone still transfers JSON. [Workflow and limits](docs/PACKING_LISTS.md#reusable-kits).
 
 ## Warranty overview through Faustus

@@ -19,7 +19,7 @@ from .kafka import KafkaLink, KafkaMirror
 INSTRUCTIONS = """HomeHoard keeps the user's home on this computer: homes, floors, rooms, furniture (containers nested inside each other), objects with tags, an appliance card per object (brand, model, serial, purchase, warranty, spare parts, linked papers in Kafka's Hoard) and maintenance tasks with their legal basis or advice.
 To answer «¿dónde está…?» use home_find_item; «¿qué hay en…?» home_list_location. Quote locations only from tool results; if an object is not found, say so. Write tools (home_add_item, home_update_item, home_move_item, home_item_details with set, maintenance_*) only when the user asks; deletes need confirm=true.
 To prepare a packing list or kit, find the objects first, then home_check_list with their IDs and requested quantities. Repeated IDs are added together; this checks current stock and locations, without reserving or moving anything. Missing IDs and unknown stock leave totals incomplete.
-Reusable kits: home_kits saves a named definition (full list of IDs and quantities), lists/reads it, or deletes it on request. home_check_list(kit=ID_or_name) checks that saved definition against the current inventory. Saving a kit never changes stock; identical repeated saves are unchanged.
+Reusable kits: home_kits saves a named definition (full list of IDs and quantities), lists/reads it, or deletes it on request. home_check_list(kit=ID_or_name) checks one saved definition; kits=[ID_or_name,...] combines up to 50 saved kits against the same stock, summing shared objects and counting each resolved kit only once. Saving a kit never changes stock; identical repeated saves are unchanged.
 Use home_warranties for a dated overview of warranties approaching expiry, already expired, or unknown. It reads recorded local card dates, not current Kafka documents or inferred legal periods.
 Purchases: item_add_from_purchase files a bought thing (name, price, shop, date, warranty paper, where it came from) in a room or furniture, or in the «Por colocar» room when the place is not known. It is idempotent by source_ref and name.
 Maintenance: maintenance_list (overdue, this month, upcoming), maintenance_done, maintenance_add (from maintenance_templates or custom). Legal tasks carry their norm (RITE, RD 919/2006); the rest are advice and must be presented as such. Papers, warranties and manuals live in Kafka's Hoard: home_item_papers and home_manual_search reach it through the hub and say when it is not available."""
@@ -354,17 +354,35 @@ def t_kits(ctx: Ctx, a: dict[str, Any]) -> dict[str, Any]:
 
 
 def t_check_list(ctx: Ctx, a: dict[str, Any]) -> dict[str, Any]:
-    if (a.get("kit") is not None) == (a.get("requests") is not None):
-        raise ToolError("invalid", "Indica requests o kit, exactamente uno de los dos.")
+    if sum(a.get(key) is not None for key in ("kit", "kits", "requests")) != 1:
+        raise ToolError("invalid", "Indica requests, kit o kits, exactamente uno de los tres.")
     kit = None
+    kits = []
+    contributions: dict[str, list[dict[str, Any]]] = {}
     # Definition, stock and version all refer to one consistent snapshot.
     with ctx.store.lock:
-        if a.get("kit") is not None:
-            kit = _kit(ctx, _arg(a, "kit", str, required=True))
-            requests = kit["requests"]
+        if a.get("kits") is not None:
+            refs = _arg(a, "kits", list, required=True)
+            if not 1 <= len(refs) <= 50:
+                raise ToolError("invalid", "kits debe contener entre 1 y 50 ids o nombres de kit.")
+            required: dict[str, int] = {}
+            seen = set()
+            for ref in refs:
+                saved = _kit(ctx, _arg({"kit": ref}, "kit", str, required=True))
+                if saved["id"] in seen:
+                    continue
+                seen.add(saved["id"])
+                kits.append({key: saved[key] for key in ("id", "name", "updated_at")})
+                for item_id, quantity in _kit_requirements(saved["requests"]).items():
+                    required[item_id] = required.get(item_id, 0) + quantity
+                    contributions.setdefault(item_id, []).append({"id": saved["id"], "name": saved["name"], "quantity": quantity})
         else:
-            requests = _arg(a, "requests", list, required=True)
-        required = _kit_requirements(requests)
+            if a.get("kit") is not None:
+                kit = _kit(ctx, _arg(a, "kit", str, required=True))
+                requests = kit["requests"]
+            else:
+                requests = _arg(a, "requests", list, required=True)
+            required = _kit_requirements(requests)
         paths = _paths(ctx)
         version = ctx.store.info()["version"]
     rows = []
@@ -378,10 +396,12 @@ def t_check_list(ctx: Ctx, a: dict[str, Any]) -> dict[str, Any]:
                      "requested": quantity, "available": available if known else None,
                      "to_pack": to_pack, "missing": missing,
                      "location": _item_path(paths, item) if item else None,
+                     **({"kits": contributions[item_id]} if kits else {}),
                      "status": ("not_found" if item is None else "unknown_quantity" if not known
                                 else "shortage" if missing else "available")})
     complete = all(r["available"] is not None for r in rows)
     return {**({"kit": {"id": kit["id"], "name": kit["name"], "updated_at": kit["updated_at"]}} if kit else {}),
+            **({"kits": kits} if kits else {}),
             "inventory_version": version, "ready": complete and all(r["missing"] == 0 for r in rows),
             "totals_complete": complete, "requested_total": sum(required.values()),
             "to_pack_total": sum(r["to_pack"] for r in rows) if complete else None,
@@ -979,12 +999,14 @@ TOOLS: list[Tool] = [
                                   "¿qué hay en la caja roja?, contenido del trastero, lista lo que hay en"),
          _obj({"location": LOCATION, "offset": I("Start at", minimum=0), "limit": I("1–100", minimum=1, maximum=100)}, ("location",)), True, t_list_location),
     Tool("home_check_list", _d("Check a packing list against current stock, with shortages and locations. Preparar equipo o un kit.",
-                               "Pass a saved kit ID/name with kit, or 1–100 {item_id, quantity} entries with requests using IDs from home_find_item or home_list_location. "
+                               "Pass one saved kit ID/name with kit, 1–50 saved kit IDs/names with kits, or 1–100 {item_id, quantity} entries with requests using IDs from home_find_item or home_list_location. Use exactly one source. "
+                               "kits sums requirements before checking the shared stock and returns contributing kits per object; a resolved kit is counted once even if referenced by ID and name. "
                                "Repeated IDs are summed in first-seen order. Returns requested/available/to_pack/missing per object and inventory_version. "
                                "Unknown or deleted IDs and invalid stored stock have null quantities, totals_complete=false and ready=false; never infer zero stock. "
                                "Read only: nothing is reserved, moved or deducted. A repeated call checks the current inventory again.",
                                "packing list, preparar mochila, qué me falta, lista de equipo, preparar kit, comprobar cantidades"),
-         _obj({"kit": S("Saved kit ID or exact unique name; use instead of requests."),
+         _obj({"kit": S("Saved kit ID or exact unique name; use instead of requests or kits."),
+               "kits": {"type": "array", "minItems": 1, "maxItems": 50, "items": S("Saved kit ID or exact unique name.")},
                "requests": {"type": "array", "minItems": 1, "maxItems": 100,
                              "items": _obj({"item_id": S("Exact object ID from inventory search."),
                                             "quantity": I("Requested units, a positive integer.", minimum=1)}, ("item_id", "quantity"))}},

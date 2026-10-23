@@ -54,7 +54,7 @@ that the objects still exist or work.
 
 Then `home_check_list({"kit":"Weekend trip"})` reads the definition and the
 current stock/location in one snapshot. Its response also includes `kit.id`,
-`kit.name` and `kit.updated_at`. Supply **either** `requests` or `kit`.
+`kit.name` and `kit.updated_at`. Supply exactly one of `requests`, `kit` or `kits`.
 
 - `action=list` (default): names and IDs, up to 50 results with a total count.
 - `action=get, kit=ID_or_unique_name`: the complete definition.
@@ -81,6 +81,27 @@ of a shortage. Missing objects cannot be marked as collected. A new check or
 edited requirements resets the marks; stock and saved definitions stay intact.
 The editor needs the computer connection and says so when it is unavailable.
 
+### Preparing several saved kits together
+
+Use `home_check_list({"kits":["Weekend trip","Emergency bag"]})` to combine
+1–50 saved kit IDs or exact unique names. All definitions and stock come from
+one snapshot. Shared object quantities are added **before** checking stock:
+two torches for a trip plus one for emergencies need three in total, so a stock
+of two leaves one missing even though either kit is individually ready.
+
+Each resolved kit counts once, including when referenced by both ID and name.
+Response `kits` contains IDs, names and update times; each item row adds `kits`
+with the quantity requested by each contributing kit. Items remain in first-seen
+order. Each saved definition keeps its existing 100-row limit; the combined
+check can contain more than 100 distinct objects. An absent, deleted or ambiguous
+kit fails the whole request; unknown objects/stock keep the existing null rules.
+
+In `/kits`, choose **Combinar kits**, mark saved kits and **Comprobar selección**.
+The result shows the combined shortage, locations and the contribution of each
+kit. It uses saved versions, preserves an unsaved editor draft when returning,
+and resets the result and temporary collection marks when the selection changes.
+The check creates no reservation, saved combination or packing history.
+
 Design references: [ZenPak's reusable gear and packing lists](https://github.com/zenpakapp/zenpak)
 and [HomeInventory's inventory-linked lists](https://github.com/asdteke/HomeInventory).
 No upstream code or dependency was copied. GitHub Trending did not demonstrate
@@ -105,6 +126,12 @@ existencias y ubicaciones. Las marcas de recogida son temporales: no descuentan
 stock y se reinician al cambiar lo solicitado o volver a comprobar. El móvil
 nativo conserva el intercambio JSON; el editor necesita el ordenador conectado.
 
+Para preparar varios kits a la vez, **Combinar kits** permite marcar los
+guardados y comprobar la selección. `home_check_list(kits=[id_o_nombre,...])`
+suma sus necesidades contra las mismas existencias y muestra cuánto pide cada
+kit. Un kit repetido, incluso por ID y nombre, cuenta una sola vez. Se usan
+las definiciones guardadas; el borrador del editor se conserva al volver.
+
 ## References
 
 The workflow draws on equipment-library and packing-list patterns documented by
@@ -114,3 +141,8 @@ original; no upstream code or assets are included. The connected editor also
 uses the reusable-kit pattern documented in the [official asset-management
 feature list](https://snipeitapp.com/product), without importing its code or
 introducing asset assignment or checkout in HomeHoard.
+
+Combined demand is informed by the [official Grocy meal-plan workflow](https://github.com/grocy/grocy-docs/blob/master/tutorials/cooking.md)
+and [InvenTree's bill-of-materials stock checks](https://docs.inventree.org/en/latest/manufacturing/build/).
+HomeHoard implements only a read-only check of household equipment needs, with
+no consumption, allocation, purchase workflow or imported upstream code.

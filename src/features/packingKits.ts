@@ -2,6 +2,7 @@ import type { PackingKit } from '../db/types';
 import { flushLocal, refreshFromServer, uiCall } from './serverApi';
 
 export interface KitSummary { id: string; name: string; items: number; updated_at: number }
+export interface CheckedKit {id: string; name: string; updated_at: number}
 export interface PackingRow {
   item_id: string;
   name: string | null;
@@ -11,6 +12,7 @@ export interface PackingRow {
   missing: number | null;
   location: string | null;
   status: 'available' | 'shortage' | 'not_found' | 'unknown_quantity';
+  kits?: {id: string; name: string; quantity: number}[];
 }
 export interface PackingCheck {
   inventory_version: number;
@@ -20,6 +22,7 @@ export interface PackingCheck {
   to_pack_total: number | null;
   missing_total: number | null;
   items: PackingRow[];
+  kits?: CheckedKit[];
 }
 
 export const listKits = () => uiCall<{kits: KitSummary[]; total: number}>('home_kits', {action: 'list'});
@@ -37,4 +40,8 @@ export async function deleteKit(id: string) {
 export async function checkPacking(requests: PackingKit['requests']) {
   await flushLocal();
   return uiCall<PackingCheck>('home_check_list', {requests});
+}
+export async function checkKits(kits: string[]) {
+  await flushLocal();
+  return uiCall<PackingCheck>('home_check_list', {kits});
 }

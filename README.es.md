@@ -170,6 +170,12 @@ AGPL-3.0-or-later (como el resto de la familia Hoard).
 
 ## Kits de equipo reutilizables
 
+**Combinar kits** en `/kits` o `home_check_list(kits=[id_o_nombre,...])` en
+Faustus/MCP permite preparar varios kits guardados a la vez. Suma los objetos
+compartidos antes de compararlos con las mismas existencias y muestra cuánto
+pide cada kit. Las referencias repetidas al mismo kit cuentan una vez. Usa las
+definiciones guardadas, conserva el borrador del editor y no reserva stock.
+
 `home_kits` guarda, lista, lee y borra definiciones de kits con nombre. Guardar el mismo nombre reutiliza su ID; una lista idéntica no cambia nada. `home_check_list(kit="Viaje")` comprueba las existencias y ubicaciones actuales, incluidas cantidades cambiadas y objetos que faltan. Guardar un kit no cambia cantidades ni ubicaciones. Las definiciones se conservan en la sincronización web y en copias versión 4, también al importar/exportar desde SQLite nativo; el móvil sigue intercambiando JSON.
 
 En la web conectada, **Preparar un kit** desde Inicio abre `/kits`: busca objetos, elige cantidades, guarda, abre, corrige o borra listas y comprueba qué hay, qué falta y dónde recogerlo. Las marcas temporales cuentan únicamente las unidades disponibles, se reinician con una nueva comprobación y no mueven ni descuentan stock. No son un historial de preparación. La página usa las mismas herramientas `home_kits` y `home_check_list` que Faustus; el editor indica cuándo el ordenador no está disponible. [Uso y límites](docs/PACKING_LISTS.md#reusable-kits).
