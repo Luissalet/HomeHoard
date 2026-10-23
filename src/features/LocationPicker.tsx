@@ -16,9 +16,11 @@ export interface LocationValue {
 export function LocationPicker({
   value,
   onChange,
+  roomOptionLabel = 'Suelto en la habitación',
 }: {
   value: LocationValue;
   onChange: (v: LocationValue) => void;
+  roomOptionLabel?: string;
 }) {
   const data = useData();
   const [open, setOpen] = useState(false);
@@ -68,7 +70,7 @@ export function LocationPicker({
 
   return (
     <>
-      <Pressable style={styles.field} onPress={() => setOpen(true)}>
+      <Pressable accessibilityRole="button" accessibilityLabel="Elegir ubicación" style={styles.field} onPress={() => setOpen(true)}>
         <Ionicons name="location-outline" size={18} color={colors.textDim} />
         <Text style={[styles.fieldText, !value.roomId && { color: colors.textDim }]} numberOfLines={1}>
           {value.roomId ? value.label : 'Elegir ubicación'}
@@ -106,7 +108,7 @@ export function LocationPicker({
                 <>
                   <Pressable style={[styles.opt, styles.optLoose]} onPress={() => choose(room, null)}>
                     <Ionicons name="location-outline" size={20} color={colors.accent} />
-                    <Text style={styles.optText}>Suelto en la habitación</Text>
+                    <Text style={styles.optText}>{roomOptionLabel}</Text>
                   </Pressable>
                   {(contsQ.data ?? []).map(({ container, depth }) => (
                     <Pressable

@@ -55,6 +55,7 @@ export default function RootLayout() {
                   <Stack.Screen name="add" options={{ presentation: 'modal', title: 'Añadir objeto' }} />
                   <Stack.Screen name="scan" options={{ title: 'Escanear etiqueta' }} />
                   <Stack.Screen name="kits" options={{ title: 'Kits y equipo' }} />
+                  <Stack.Screen name="warranties" options={{ title: 'Garantías registradas' }} />
                   <Stack.Screen name="room/[id]" options={{ title: 'Habitación' }} />
                   <Stack.Screen name="container/[id]" options={{ title: 'Mueble' }} />
                   <Stack.Screen name="item/[id]" options={{ title: 'Objeto' }} />

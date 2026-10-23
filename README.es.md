@@ -174,7 +174,9 @@ AGPL-3.0-or-later (como el resto de la familia Hoard).
 
 En la web conectada, **Preparar un kit** desde Inicio abre `/kits`: busca objetos, elige cantidades, guarda, abre, corrige o borra listas y comprueba qué hay, qué falta y dónde recogerlo. Las marcas temporales cuentan únicamente las unidades disponibles, se reinician con una nueva comprobación y no mueven ni descuentan stock. No son un historial de preparación. La página usa las mismas herramientas `home_kits` y `home_check_list` que Faustus; el editor indica cuándo el ordenador no está disponible. [Uso y límites](docs/PACKING_LISTS.md#reusable-kits).
 
-## Vista de garantías desde Faustus
+## Garantías registradas en la app y Faustus
+
+**Consultar garantías**, desde Inicio, abre `/warranties` en la web conectada: filtra por próximas, activas, vencidas, sin fecha o todas, con horizonte en días, fecha de referencia y habitación o mueble. Cada resultado enlaza a la ficha y muestra ubicación, fecha, días restantes y procedencia anotada (incluida una fecha de Kafka guardada localmente). La vista pagina los resultados y distingue las fechas ausentes o inválidas. Usa `home_warranties` sin duplicar su cómputo en la interfaz, consultar Kafka ni inferir un plazo legal. Los filtros se aplican con **Aplicar filtros**; la fecha vacía usa la del ordenador. Disponible al conectar con el servidor, no en la casa de ejemplo ni sobre el inventario exclusivamente local del móvil.
 
 `home_warranties` lista las fechas de garantía registradas según estado (`expiring`, `expired`, `active`, `unknown`, `all`), habitación o mueble y fecha de referencia opcionales. Las próximas incluyen hoy y los siguientes `days` días (90 por defecto). Devuelve ubicación completa, fecha, días restantes y fuente registrada, ordenados por vencimiento. Incluye muebles anidados y pagina con `next_offset`. Cuenta aparte las fechas ausentes o inválidas. Lee las fichas sin consultar Kafka, cambiar el inventario ni inferir un plazo legal; una fecha copiada de Kafka sigue siendo la fecha guardada localmente.
 
