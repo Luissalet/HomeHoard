@@ -127,3 +127,7 @@ uses saved definitions, preserves the editor draft and reserves no stock.
 `home_warranties` lists recorded local warranty dates by status (`expiring`, `expired`, `active`, `unknown`, or `all`), optional room/furniture, and reference date. Expiring includes today through `days` ahead (default 90). Results are sorted by end date and include the full location, days left, and recorded source. Nested furniture is included; pagination returns `next_offset`. Missing or invalid dates are counted separately. This reads appliance cards without querying Kafka, changing inventory or inferring a legal warranty term; a date previously copied from Kafka remains the locally recorded date.
 
 Example: `home_warranties(as_of="2026-10-06", days=14, location="Cocina")`. To list dates already passed, use `status="expired"`.
+
+## Skills for the agents that connect
+
+This app carries procedures from the skill library of the family's workspace for the agents that connect to it: `household-inventory-and-maintenance`. They are named in what an agent reads on connecting, read with `skills_list` and `skill_read`, searched and assigned with `skills_library` and `skills_assign`, and offered as prompts. The person chooses them on the skills page (`/api/agent/skills/page`) or in the hub's Skills tab; the `skills` block of `faustus-plugin.json` holds what the app asks for by default.

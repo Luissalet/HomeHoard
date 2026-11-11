@@ -189,3 +189,7 @@ En la web conectada, **Preparar un kit** desde Inicio abre `/kits`: busca objeto
 `home_warranties` lista las fechas de garantía registradas según estado (`expiring`, `expired`, `active`, `unknown`, `all`), habitación o mueble y fecha de referencia opcionales. Las próximas incluyen hoy y los siguientes `days` días (90 por defecto). Devuelve ubicación completa, fecha, días restantes y fuente registrada, ordenados por vencimiento. Incluye muebles anidados y pagina con `next_offset`. Cuenta aparte las fechas ausentes o inválidas. Lee las fichas sin consultar Kafka, cambiar el inventario ni inferir un plazo legal; una fecha copiada de Kafka sigue siendo la fecha guardada localmente.
 
 Ejemplo: `home_warranties(as_of="2026-10-06", days=14, location="Cocina")`. Para fechas ya pasadas, usa `status="expired"`.
+
+## Skills para los agentes que se conectan
+
+Esta app lleva procedimientos de la biblioteca de skills del espacio de trabajo de la familia para los agentes que se conectan: `household-inventory-and-maintenance`. Aparecen en lo que el agente lee al conectarse, se leen con `skills_list` y `skill_read`, se buscan y asignan con `skills_library` y `skills_assign`, y se ofrecen como prompts. Se eligen en la página de skills (`/api/agent/skills/page`) o en la pestaña Skills del hub; el bloque `skills` de `faustus-plugin.json` guarda lo que la app pide por defecto.
