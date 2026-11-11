@@ -32,7 +32,7 @@ CREATE TABLE IF NOT EXISTS room (
   shape TEXT NOT NULL DEFAULT 'rect',
   x_cm REAL NOT NULL DEFAULT 0, y_cm REAL NOT NULL DEFAULT 0,
   width_cm REAL NOT NULL DEFAULT 300, height_cm REAL NOT NULL DEFAULT 300,
-  rotation REAL NOT NULL DEFAULT 0, points_json TEXT,
+  rotation REAL NOT NULL DEFAULT 0, points_json TEXT, openings_json TEXT,
   created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, deleted_at INTEGER
 );
 
@@ -126,4 +126,6 @@ export const MIGRATIONS: string[] = [
   `ALTER TABLE item_details ADD COLUMN source_ref TEXT`,
   `ALTER TABLE item_details ADD COLUMN warranty_ref TEXT`,
   `UPDATE item_tag SET updated_at = COALESCE((SELECT updated_at FROM item WHERE item.id = item_tag.item_id), 0) WHERE updated_at IS NULL`,
+  // 0.5: puertas y ventanas de cada habitación (JSON en texto), para que una copia de ida y vuelta por el móvil no las pierda.
+  `ALTER TABLE room ADD COLUMN openings_json TEXT`,
 ];

@@ -138,7 +138,7 @@ class ServerHttpTest(unittest.TestCase):
             self.assertEqual(status["kafka"]["reason"], "hub_down")
             self.assertTrue(status["settings"]["kafka_mirror"])
             code, body = post(base + "/api/settings", {"kafka_mirror": False})
-            self.assertEqual((code, body), (200, {"kafka_mirror": False}))
+            self.assertEqual((code, body), (200, {"kafka_mirror": False, "wall_height_cm": 250, "infer_doors": True}))
             code, body = post(base + "/api/kafka/search", {"query": "lavadora"})
             self.assertEqual((code, body["ok"], body["reason"]), (200, False, "hub_down"))
 

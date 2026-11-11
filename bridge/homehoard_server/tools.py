@@ -2,18 +2,23 @@
 MCP bridge. Writes go through the same merge as the app and return the new state."""
 from __future__ import annotations
 
+import json
 import re
 import threading
 import uuid
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
+from pathlib import Path
 from typing import Any, Callable, Optional
 
 import inventory
 
+from . import house3d as H3
+from . import house3d_export as HX
 from . import maintenance as MT
 from .bundle import link_id
-from .hoard_link import fam_refs
+from .hoard_link import fam_refs, family
+from .hoard_link.atomic import write_bytes_atomic
 from .kafka import KafkaLink, KafkaMirror
 
 INSTRUCTIONS = """HomeHoard keeps the user's home on this computer: homes, floors, rooms, furniture (containers nested inside each other), objects with tags, an appliance card per object (brand, model, serial, purchase, warranty, spare parts, linked papers in Kafka's Hoard) and maintenance tasks with their legal basis or advice.
@@ -22,6 +27,7 @@ To prepare a packing list or kit, find the objects first, then home_check_list w
 Reusable kits: home_kits saves a named definition (full list of IDs and quantities), lists/reads it, or deletes it on request. home_check_list(kit=ID_or_name) checks one saved definition; kits=[ID_or_name,...] combines up to 50 saved kits against the same stock, summing shared objects and counting each resolved kit only once. Saving a kit never changes stock; identical repeated saves are unchanged.
 Use home_warranties for a dated overview of warranties approaching expiry, already expired, or unknown. It reads recorded local card dates, not current Kafka documents or inferred legal periods.
 Purchases: item_add_from_purchase files a bought thing (name, price, shop, date, warranty paper, where it came from) in a room or furniture, or in the «Por colocar» room when the place is not known. It is idempotent by source_ref and name.
+The house in 3D is built from the 2D plan, never drawn again: home_3d_scene describes it (rooms, walls, doors, windows, furniture, where each object sits, what is overdue), home_3d_locate answers «¿dónde está…?» with the spot in the house and a link that opens the 3D view looking at the object, home_3d_export writes it as GLB (or OBJ, and files it in Vulcan's Hoard with send_to_vulcan). home_plan_openings lists, adds or removes the doors and windows of a room's wall and sets the wall height; without real doors, two rooms that touch get a supposed one.
 Maintenance: maintenance_list (overdue, this month, upcoming), maintenance_done, maintenance_add (from maintenance_templates or custom). Legal tasks carry their norm (RITE, RD 919/2006); the rest are advice and must be presented as such. Papers, warranties and manuals live in Kafka's Hoard: home_item_papers and home_manual_search reach it through the hub and say when it is not available."""
 
 
@@ -45,6 +51,10 @@ class Ctx:
     refs: Optional[Callable[..., Any]] = None                           # tell the hub two records are the same thing (default: the family library)
     background: Optional[Callable[[Callable[[], Any]], None]] = None    # run a fire-and-forget hint (default: a daemon thread)
     announced: Optional[Callable[[str, str], None]] = None              # note that an object's creation was announced (the sync does not repeat it)
+    settings: Optional[Callable[[], dict[str, Any]]] = None             # the server settings (wall height, supposed doors)
+    save_settings: Optional[Callable[[dict[str, Any]], dict[str, Any]]] = None
+    exports_dir: Optional[Path] = None                                  # where exported files are written (<data>/exports)
+    family_call: Optional[Callable[..., dict[str, Any]]] = None         # call a tool of another Hoard through the hub (default: the family library)
 
     def spawn(self, fn: Callable[[], Any]) -> None:
         def safe() -> None:
@@ -986,6 +996,188 @@ def t_item_add_from_purchase(ctx: Ctx, a: dict[str, Any]) -> dict[str, Any]:
     return out
 
 
+# ====================================================================== the house in 3D
+VULCAN_REASON = {
+    "hub_down": "El Hoard Hub no responde: ábrelo para enviar la casa a Vulcan.",
+    "app_down": "Vulcan's Hoard no está abierto: ábrelo desde el Hub y repite.",
+    "app_unknown": "El Hub no conoce Vulcan's Hoard.",
+    "tool_missing": "Esta versión de Vulcan's Hoard no sabe importar un archivo suelto: actualízala.",
+    "auth": "El Hub no acepta el token de HomeHoard.",
+    "error": "Vulcan devolvió un error.",
+}
+
+
+def scene_of(ctx: Ctx, home: str = "") -> dict[str, Any]:
+    return H3.build_scene(ctx.store.tables(), today=ctx.today(), settings=ctx.settings() if ctx.settings else None, home=home, app_url=ctx.app_url)
+
+
+def t_3d_scene(ctx: Ctx, a: dict[str, Any]) -> dict[str, Any]:
+    scene = scene_of(ctx, _arg(a, "home", str, ""))
+    return scene if _arg(a, "detail", bool, False) else H3.summary(scene)
+
+
+def t_3d_locate(ctx: Ctx, a: dict[str, Any]) -> dict[str, Any]:
+    query = _arg(a, "query", str, required=True)
+    limit = max(1, min(_arg(a, "limit", int, 5), 20))
+    scene = scene_of(ctx)
+    if any(i["id"] == query for i in scene["items"]):
+        ids = [query]
+    else:
+        found = inventory.find(query, limit)
+        if found["status"] in ("no_snapshot", "empty_query"):
+            return {"status": found["status"], "query": query, "matches": [], "message": found["message"]}
+        ids = [m["id"] for m in found["matches"]]
+    matches = [m for m in (H3.locate(scene, i) for i in ids) if m]
+    if not matches:
+        return {"status": "not_found", "query": query, "matches": [],
+                "message": "Ese objeto está en el inventario, pero su habitación no está en el plano de esta vivienda." if ids
+                else "Objeto no encontrado en el inventario de HomeHoard."}
+    return {"status": "found", "query": query, "count": len(matches), "best": matches[0], "matches": matches, "url": matches[0]["url"]}
+
+
+def export_bytes(ctx: Ctx, fmt: str, *, home: str = "", include_items: Optional[bool] = None, scale: float = 100.0) -> dict[str, Any]:
+    """The house as one file in memory: ``{scene, name, data, extra}`` (``extra`` holds the OBJ's material file)."""
+    if fmt not in ("glb", "obj"):
+        raise ToolError("invalid", "format es glb u obj.")
+    if not 1 <= float(scale) <= 1000:
+        raise ToolError("invalid", "scale va de 1 (tamaño real) a 1000.")
+    scene = scene_of(ctx, home)
+    if scene["empty"]:
+        raise ToolError("not_found", scene.get("message") or "No hay plano que levantar.", "Añade habitaciones en la pestaña Plano.")
+    name = HX.slug((scene["home"] or {}).get("name") or "", "casa")
+    if fmt == "glb":
+        return {"scene": scene, "name": name + ".glb", "data": HX.build_glb(scene, include_items=True if include_items is None else include_items), "extra": {}}
+    obj, mtl = HX.build_obj(scene, include_items=bool(include_items), scale=float(scale), mtl_name=name + ".mtl")
+    return {"scene": scene, "name": name + ".obj", "data": obj.encode("utf-8"), "extra": {name + ".mtl": mtl.encode("utf-8")}}
+
+
+def _write_export(ctx: Ctx, built: dict[str, Any]) -> Path:
+    if ctx.exports_dir is None:
+        raise ToolError("invalid", "Este servidor no tiene carpeta de exportaciones.")
+    folder = Path(ctx.exports_dir) / "casa-3d"
+    folder.mkdir(parents=True, exist_ok=True)
+    path = folder / built["name"]
+    write_bytes_atomic(path, built["data"])
+    for extra_name, data in built["extra"].items():
+        write_bytes_atomic(folder / extra_name, data)
+    return path
+
+
+def vulcan_status(ctx: Ctx) -> dict[str, Any]:
+    """Whether Vulcan's Hoard answers through the hub right now (the 3D view shows «Enviar a Vulcan» only then)."""
+    from .kafka import classify
+    try:
+        r = (ctx.family_call or family.call)("vulcan", "models_stats", {}, timeout=6)
+    except Exception as exc:  # noqa: BLE001 - a missing hub never breaks the view
+        r = {"ok": False, "status": None, "error": f"{type(exc).__name__}: {exc}"}
+    reason = classify(r if isinstance(r, dict) else {"ok": False, "error": "bad answer"})
+    return {"available": reason == "ok", **({} if reason == "ok" else {"reason": reason, "message": VULCAN_REASON.get(reason, VULCAN_REASON["error"])})}
+
+
+def _send_to_vulcan(ctx: Ctx, path: Path, scene: dict[str, Any]) -> dict[str, Any]:
+    from .kafka import classify
+    args = {"path": str(path.resolve()), "source_ref": f"hoard://homehoard/home/{scene['home']['id']}"}
+    try:
+        r = (ctx.family_call or family.call)("vulcan", "model_import_file", args, timeout=180)
+    except Exception as exc:  # noqa: BLE001
+        r = {"ok": False, "status": None, "error": f"{type(exc).__name__}: {exc}"}
+    reason = classify(r if isinstance(r, dict) else {"ok": False, "error": "bad answer"})
+    if reason != "ok":
+        return {"ok": False, "reason": reason, "message": VULCAN_REASON.get(reason, VULCAN_REASON["error"]), "detail": str(r.get("error") or "")[:300]}
+    result = r.get("result") if isinstance(r.get("result"), dict) else {"result": r.get("result")}
+    model = result.get("model") if isinstance(result.get("model"), dict) else result
+    return {"ok": True, "path": args["path"], "model_id": model.get("id") or result.get("id") or result.get("model_id"),
+            "created": result.get("created"), "result": {k: v for k, v in result.items() if isinstance(v, (str, int, float, bool, type(None)))}}
+
+
+def t_3d_export(ctx: Ctx, a: dict[str, Any]) -> dict[str, Any]:
+    fmt = (_arg(a, "format", str, "glb") or "glb").lower()
+    send = _arg(a, "send_to_vulcan", bool, False)
+    scale = _arg(a, "scale", (int, float), 100)
+    home = _arg(a, "home", str, "")
+    built = export_bytes(ctx, fmt, home=home, include_items=a.get("include_items") if isinstance(a.get("include_items"), bool) else None, scale=scale)
+    path = _write_export(ctx, built)
+    scene = built["scene"]
+    out: dict[str, Any] = {"ok": True, "format": fmt, "path": str(path.resolve()), "file": built["name"], **HX.receipt(built["data"]),
+                           "home": scene["home"], "stats": scene["stats"],
+                           "units": "metros, Y arriba" if fmt == "glb" else f"milímetros a escala 1:{scale:g}, Z arriba",
+                           "download_url": f"{ctx.app_url.rstrip('/')}/api/house3d/export.{fmt}"}
+    if send:
+        # Vulcan's library reads STL, 3MF and OBJ: the house goes there as an OBJ at print scale, whatever was asked for here
+        obj = built if fmt == "obj" else export_bytes(ctx, "obj", home=home, include_items=False, scale=scale)
+        obj_path = path if fmt == "obj" else _write_export(ctx, obj)
+        out["vulcan"] = {**_send_to_vulcan(ctx, obj_path, scene), "file": obj["name"], "scale": f"1:{scale:g}"}
+    return out
+
+
+def _resolve_room(ctx: Ctx, ref: str) -> dict[str, Any]:
+    room = ctx.store.get("rooms", (ref or "").strip())
+    if room and room.get("deleted_at") is None:
+        return room
+    loc = _resolve_location(ctx, ref)
+    if loc["kind"] != "room":
+        raise ToolError("invalid", f"«{loc['path']}» es un mueble, no una habitación.")
+    return ctx.store.get("rooms", loc["id"])
+
+
+def _openings_out(ctx: Ctx, room: Optional[dict[str, Any]] = None) -> dict[str, Any]:
+    scene = scene_of(ctx)
+    rows = [{**{k: v for k, v in o.items() if k not in ("center", "axis")}, "floor": f["name"], "side_label": H3.SIDE_LABEL[o["side"]]}
+            for f in scene["floors"] for o in f["openings"] if room is None or room["id"] in (o["room_id"], o.get("other_room_id"))]
+    return {"settings": scene["settings"], "count": len(rows), "openings": rows,
+            "note": "Las puertas con inferred=true son supuestas: aparecen entre dos habitaciones que se tocan mientras esa pared no tenga un hueco real."}
+
+
+def t_plan_openings(ctx: Ctx, a: dict[str, Any]) -> dict[str, Any]:
+    action = _arg(a, "action", str, "list") or "list"
+    if action == "list":
+        return _openings_out(ctx, _resolve_room(ctx, a["room"]) if _arg(a, "room", str, "") else None)
+    if action == "settings":
+        values = {k: a[k] for k in ("wall_height_cm", "infer_doors") if a.get(k) is not None}
+        if not values:
+            raise ToolError("invalid", "Indica wall_height_cm o infer_doors.")
+        if ctx.save_settings is None:
+            raise ToolError("invalid", "Este servidor no guarda ajustes.")
+        ctx.save_settings(values)
+        return {"ok": True, **_openings_out(ctx)}
+    numbers = {k: _arg(a, k, (int, float)) for k in ("offset_cm", "width_cm", "sill_cm", "height_cm")}
+    with ctx.store.lock:
+        if action == "add":
+            room = _resolve_room(ctx, _arg(a, "room", str, required=True))
+            side = H3.parse_side(_arg(a, "side", str, required=True))
+            if side is None:
+                raise ToolError("invalid", "side es n, e, s u o (norte, este, sur, oeste).")
+            kind, opening_id = _arg(a, "kind", str, "door") or "door", None
+        elif action in ("update", "remove"):
+            opening_id = _arg(a, "opening", str, required=True)
+            if opening_id.startswith("auto:"):
+                raise ToolError("invalid", "Es una puerta supuesta, no está guardada en el plano.",
+                                "Añade una puerta o ventana real en esa pared con action=add, o quita todas las supuestas con action=settings, infer_doors=false.")
+            room = next((r for r in ctx.store.alive("rooms") if any(o["id"] == opening_id for o in H3.room_openings(r))), None)
+            if room is None:
+                raise ToolError("not_found", f"No hay ninguna puerta o ventana «{opening_id}».", "Lista las que hay con action=list.")
+            current = next(o for o in H3.room_openings(room) if o["id"] == opening_id)
+            side = H3.parse_side(a["side"]) if a.get("side") else current["side"]
+            kind = _arg(a, "kind", str, "") or current["kind"]
+            for key in numbers:
+                if numbers[key] is None:
+                    numbers[key] = current[key]
+        else:
+            raise ToolError("invalid", "action: list, add, update, remove o settings.")
+        if action == "remove":
+            openings = [o for o in H3.room_openings(room) if o["id"] != opening_id]
+        else:
+            try:
+                openings = H3.new_opening(room, kind=kind, side=side, replace_id=opening_id, **numbers)
+            except ValueError as exc:
+                raise ToolError("invalid", str(exc)) from exc
+        saved = ctx.store.put("rooms", {**room, "openings_json": json.dumps(openings, ensure_ascii=False, separators=(",", ":"))})
+    changed = None if action == "remove" else next(o for o in openings if o["id"] == (opening_id or openings[-1]["id"]))
+    return {"ok": True, "action": action, "room": {"id": saved["id"], "name": saved.get("name")},
+            **({"opening": {**changed, "side_label": H3.SIDE_LABEL[changed["side"]]}} if changed else {"removed": opening_id}),
+            **_openings_out(ctx, saved)}
+
+
 # ====================================================================== catalogue
 ITEM = S("Object: its id or its name (a unique match).")
 LOCATION = S("Room, piece of furniture or box: id, name or full path (e.g. «Dormitorio › Armario › Cajón rojo»).")
@@ -1117,6 +1309,40 @@ TOOLS: list[Tool] = [
                                      "suggestions first.",
                                      "qué mantenimiento necesita, cada cuánto se revisa, es obligatorio revisar"),
          _obj({"item": ITEM, "text": S("Words such as «caldera» or «baño».")}), True, t_maint_templates),
+    Tool("home_3d_scene", _d("The house in 3D built from the 2D plan: rooms, walls, doors, furniture, objects. Casa en 3D.",
+                             "Nothing is drawn again: room rectangles become floors and walls with height, the furniture of the plan becomes boxes, "
+                             "each object gets a spot in its room or on its furniture, and overdue maintenance is flagged. Returns a summary (sizes in "
+                             "metres, counts, openings, what is due, warnings, url of the 3D view); detail=true adds the full geometry.",
+                             "generar el 3D, levantar el plano, vista 3D, maqueta de la casa, casa en tres dimensiones, muros"),
+         _obj({"detail": B("Include the full geometry (walls as boxes, positions)."), "home": S("Home id or name when there are several.")}), True, t_3d_scene),
+    Tool("home_3d_locate", _d("Where an object is inside the 3D house, with the camera to look at it and a link. Localizar en 3D.",
+                              "Same search as home_find_item (Spanish questions, small spelling errors) or an object id. Each match says its room, "
+                              "furniture and floor, its position in metres, an orbit camera and a first-person spot, and url opens the 3D view "
+                              "flying to it. If it is not found, say so.",
+                              "¿dónde está el taladro?, llévame hasta, enséñame dónde está, localizar en la casa, ver en 3D"),
+         _obj({"query": S("What to look for, e.g. «taladro», or an object id."), "limit": I("1–20", minimum=1, maximum=20)}, ("query",)), True, t_3d_locate),
+    Tool("home_3d_export", _d("Export the 3D house as GLB or OBJ and optionally file it in Vulcan's Hoard. Exportar la casa GLB.",
+                              "format glb (default: metres, Y up, nodes named after rooms, furniture and objects with their ids in extras) or obj "
+                              "(millimetres at 1:scale, Z up). Written to data/exports/casa-3d, overwriting the previous export; returns path, size "
+                              "and SHA-256. send_to_vulcan=true also files an OBJ at 1:scale in Vulcan's 3D library through the hub and says why "
+                              "when Vulcan is not open.",
+                              "exportar la casa, GLB, glTF, OBJ, maqueta imprimible, enviar a Vulcan, descargar el modelo 3D"),
+         _obj({"format": S("glb | obj", enum=["glb", "obj"]), "include_items": B("Object markers (default: yes in GLB, no in OBJ)."),
+               "scale": {"type": "number", "minimum": 1, "maximum": 1000, "description": "OBJ and Vulcan: 1:scale (default 100)."},
+               "send_to_vulcan": B("Also file it in Vulcan's Hoard."), "home": S("Home id or name when there are several.")}), False, t_3d_export),
+    Tool("home_plan_openings", _d("Doors and windows of the plan and the wall height: list, add, update, remove. Puertas y ventanas.",
+                                  "action=list (default; room optional), add(room, side n|e|s|o, kind door|window, offset_cm from the west or north "
+                                  "end of that wall, default centred, width_cm, sill_cm, height_cm), update(opening, fields), remove(opening), "
+                                  "settings(wall_height_cm 200–400, infer_doors). Openings are stored on the room; plans saved earlier keep working. "
+                                  "A door between two rooms is stored once. inferred=true marks supposed doors, which are not stored.",
+                                  "añadir puerta, poner ventana, quitar puerta, altura de los muros, huecos del plano, techo"),
+         _obj({"action": S("Operation", enum=["list", "add", "update", "remove", "settings"]), "room": S("Room: id, name or path."),
+               "side": S("Wall of the room: n, e, s, o (norte, este, sur, oeste)."), "kind": S("door | window", enum=["door", "window"]),
+               "opening": S("Opening id (update, remove)."),
+               "offset_cm": {"type": "number", "minimum": 0, "description": "From the west end (n, s walls) or the north end (e, o walls)."},
+               "width_cm": {"type": "number", "minimum": 30}, "sill_cm": {"type": "number", "minimum": 0}, "height_cm": {"type": "number", "minimum": 30},
+               "wall_height_cm": I("Wall height, 200–400.", minimum=200, maximum=400), "infer_doors": B("Supposed doors between rooms that touch.")}),
+         False, t_plan_openings),
 ]
 TOOLS_BY_NAME = {t.name: t for t in TOOLS}
 assert len(TOOLS_BY_NAME) == len(TOOLS)

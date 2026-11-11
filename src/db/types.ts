@@ -50,6 +50,8 @@ export interface Room {
   height_cm: number;
   rotation: number;
   points_json: string | null;
+  /** Puertas y ventanas de la habitación (JSON: [{id, kind, side, offset_cm, width_cm, sill_cm, height_cm}]). Las coloca la casa en 3D. */
+  openings_json?: string | null;
   created_at: Millis;
   updated_at: Millis;
   deleted_at: Millis | null;

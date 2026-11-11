@@ -1,12 +1,13 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useEffect, useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 import { useData } from '../../src/db/provider';
 import type { ID, Rect } from '../../src/db/types';
 import { RoomSheet } from '../../src/features/CreateSheets';
 import { FloorPlanView } from '../../src/plan/FloorPlanView';
+import { House3DView } from '../../src/plan/House3DView';
 import { colors, radius, space } from '../../src/theme';
 import { Button, Chip, EmptyState, Fab } from '../../src/ui/components';
 import { useToast } from '../../src/ui/ToastProvider';
@@ -20,6 +21,17 @@ export default function MapaScreen() {
   const [editing, setEditing] = useState(false);
   const [roomSheet, setRoomSheet] = useState(false);
   const { width } = useWindowDimensions();
+  // /plan?vista=3d&objeto=<id> abre la casa en 3D mirando a ese objeto (lo usa «Ver en la casa 3D» de la ficha).
+  const params = useLocalSearchParams<{ vista?: string; objeto?: string }>();
+  const wantedItem = typeof params.objeto === 'string' && params.objeto ? params.objeto : undefined;
+  const [view, setView] = useState<'2d' | '3d'>(params.vista === '3d' ? '3d' : '2d');
+  const [focusItem, setFocusItem] = useState<ID | undefined>(wantedItem);
+  useEffect(() => {
+    if (params.vista !== '3d') return;
+    setEditing(false);
+    setView('3d');
+    setFocusItem(wantedItem);
+  }, [params.vista, wantedItem]);
 
   const homesQ = useQuery({ queryKey: ['homes'], queryFn: () => data.listHomes() });
   const home = homesQ.data?.[0];
@@ -114,7 +126,7 @@ export default function MapaScreen() {
             <Text style={styles.floorName}>{plan?.floor.name}</Text>
           )}
         </View>
-        {plan && plan.rooms.length ? (
+        {plan && plan.rooms.length && view === '2d' ? (
           <Pressable
             style={[styles.editBtn, editing && styles.editBtnActive]}
             onPress={() => setEditing((e) => !e)}
@@ -126,6 +138,11 @@ export default function MapaScreen() {
         <Button label="＋ Habitación" variant="ghost" onPress={() => setRoomSheet(true)} />
       </View>
 
+      <View style={styles.viewRow}>
+        <Chip label="Plano 2D" selected={view === '2d'} onPress={() => setView('2d')} />
+        <Chip label="Casa 3D" selected={view === '3d'} onPress={() => { setEditing(false); setView('3d'); }} />
+      </View>
+
       {editing ? (
         <View style={styles.editBanner}>
           <Ionicons name="information-circle-outline" size={14} color={colors.accent} />
@@ -133,7 +150,11 @@ export default function MapaScreen() {
         </View>
       ) : null}
 
-      {plan && plan.rooms.length ? (
+      {view === '3d' ? (
+        <View style={styles.house3d}>
+          <House3DView focusItemId={focusItem} onShowPlan={() => setView('2d')} />
+        </View>
+      ) : plan && plan.rooms.length ? (
         <ScrollView style={{ flex: 1 }} contentContainerStyle={styles.planContent}>
           <View style={[styles.planFrame, { height: Math.max(315, Math.min(width * 0.78, 520)) }]}>
             <FloorPlanView
@@ -164,7 +185,7 @@ export default function MapaScreen() {
         </View>
       )}
 
-      {!editing ? <Fab onPress={() => router.push('/add')} /> : null}
+      {!editing && view === '2d' ? <Fab onPress={() => router.push('/add')} /> : null}
 
       <RoomSheet visible={roomSheet} onClose={() => setRoomSheet(false)} onSubmit={createRoom} />
     </View>
@@ -189,6 +210,8 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   editBtnActive: { backgroundColor: colors.accent2, borderColor: colors.accent2 },
+  viewRow: { flexDirection: 'row', gap: space(2), paddingHorizontal: space(4), paddingBottom: space(3) },
+  house3d: { flex: 1, marginHorizontal: space(4), marginBottom: space(4), borderRadius: radius.lg, overflow: 'hidden', backgroundColor: colors.surface, minHeight: 320 },
   editBanner: {
     flexDirection: 'row',
     alignItems: 'center',

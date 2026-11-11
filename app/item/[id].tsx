@@ -2,8 +2,9 @@ import { Ionicons } from '@expo/vector-icons';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import React from 'react';
-import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useData } from '../../src/db/provider';
+import { useSyncStatus } from '../../src/db/useSync';
 import { ItemCardSection } from '../../src/features/ItemCardSection';
 import { ItemForm, type ItemFormValues } from '../../src/features/ItemForm';
 import { MaintenanceBlock } from '../../src/features/MaintenanceBlock';
@@ -19,6 +20,7 @@ export default function ItemScreen() {
   const router = useRouter();
   const toast = useToast();
   const qc = useQueryClient();
+  const sync = useSyncStatus();
 
   const q = useQuery({
     queryKey: ['item', id],
@@ -135,6 +137,12 @@ export default function ItemScreen() {
         <PapersSection itemId={id} itemName={item.name} />
         <MaintenanceBlock target={{ kind: 'item', id, name: item.name }} />
       </View>
+
+      {Platform.OS === 'web' && sync.mode === 'online' ? (
+        <View style={{ marginTop: space(5) }}>
+          <Button label="Ver en la casa 3D" variant="ghost" onPress={() => router.push(`/plan?vista=3d&objeto=${encodeURIComponent(id)}` as never)} />
+        </View>
+      ) : null}
 
       <View style={{ marginTop: space(5) }}>
         <Button label="Imprimir etiqueta QR" variant="ghost" onPress={() => {

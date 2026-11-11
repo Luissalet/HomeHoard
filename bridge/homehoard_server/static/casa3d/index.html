@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="es" data-hoard-app="homehoard">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="theme-color" content="#1c1814">
+<title>HomeHoard · Casa en 3D</title>
+<link rel="icon" type="image/png" href="/icon.png">
+<link rel="stylesheet" href="/casa3d/style.css">
+</head>
+<body>
+<canvas id="view" tabindex="0" aria-label="Casa en 3D"></canvas>
+<div id="labels" aria-hidden="true"></div>
+
+<header id="bar">
+  <a id="home-link" class="brand" href="/plan" title="Volver al plano"><b>⌂</b><span id="home-name">Casa en 3D</span></a>
+  <div id="search-box" role="search">
+    <input id="search" type="search" autocomplete="off" spellcheck="false" placeholder="Buscar un objeto: taladro, linterna…" aria-label="Buscar un objeto en la casa">
+    <ul id="results" hidden></ul>
+  </div>
+  <div id="floors" class="group" hidden></div>
+  <div class="group" role="group" aria-label="Forma de moverse">
+    <button id="mode-orbit" class="seg on" type="button" title="Girar alrededor de la casa">Órbita</button>
+    <button id="mode-walk" class="seg" type="button" title="Caminar por dentro en primera persona">Paseo</button>
+  </div>
+  <div class="group">
+    <button id="walls" type="button" title="Muros en corte (se ve el interior) o enteros">Muros: corte</button>
+    <button id="tags" type="button" title="Mostrar el nombre de todos los objetos">Nombres</button>
+    <button id="frame" type="button" title="Encuadrar toda la casa">Encuadrar</button>
+  </div>
+  <div class="group">
+    <button id="edit" type="button" title="Colocar puertas y ventanas, altura de los muros">Puertas y ventanas</button>
+    <button id="export" type="button" title="Descargar la casa como archivo GLB">Descargar GLB</button>
+    <button id="vulcan" type="button" hidden title="Guardar la casa en la biblioteca 3D de Vulcan's Hoard">Enviar a Vulcan</button>
+  </div>
+</header>
+
+<div id="editbar" hidden>
+  <span class="hint">Pulsa en un muro para colocar:</span>
+  <button id="edit-door" class="seg on" type="button">Puerta</button>
+  <button id="edit-window" class="seg" type="button">Ventana</button>
+  <label>Altura de los muros <input id="wall-height" type="number" min="200" max="400" step="5" inputmode="numeric"> cm</label>
+  <label class="check"><input id="infer-doors" type="checkbox"> Suponer puertas entre habitaciones contiguas</label>
+  <button id="edit-done" class="primary" type="button">Hecho</button>
+</div>
+
+<div id="mini" hidden><span>Estás aquí</span></div>
+<button id="alerts" type="button" hidden></button>
+<aside id="card" hidden aria-live="polite"></aside>
+
+<div id="pad" hidden aria-label="Mandos del paseo">
+  <button data-key="turnleft" type="button" aria-label="Girar a la izquierda">⟲</button>
+  <div class="col">
+    <button data-key="forward" type="button" aria-label="Avanzar">▲</button>
+    <button data-key="back" type="button" aria-label="Retroceder">▼</button>
+  </div>
+  <button data-key="turnright" type="button" aria-label="Girar a la derecha">⟳</button>
+</div>
+<p id="hint"></p>
+<div id="toast" role="status" hidden></div>
+<div id="empty" hidden>
+  <h1>Todavía no hay plano que levantar</h1>
+  <p id="empty-text"></p>
+  <a class="primary" id="empty-link" href="/plan">Ir al plano</a>
+</div>
+<script type="module" src="/casa3d/app.js"></script>
+</body>
+</html>
