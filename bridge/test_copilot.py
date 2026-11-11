@@ -18,6 +18,7 @@ import inventory
 from helpers_test import Running, make_app, tempdir
 from homehoard_server import copilot as cp
 from homehoard_server.hoard_link.copilot_launcher import LAUNCHER_JS
+from homehoard_server.hoard_link.app_bridge import BRIDGE_JS
 from homehoard_server.hoard_link.copilot_stdlib import CopilotRelay
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -123,7 +124,7 @@ class CopilotTest(unittest.TestCase):
                 self.assertEqual(page.count('<script src="/copilot.js"></script>'), 1, path)
             code, body, headers = call(base, "/api/copilot/launcher.js")
             self.assertEqual(code, 200)
-            self.assertEqual(body, LAUNCHER_JS.encode("utf-8"))   # the vendored launcher, served as is
+            self.assertEqual(body, (LAUNCHER_JS + "\n" + BRIDGE_JS).encode("utf-8"))
             self.assertIn(b"hoardCopilot", body)
             self.assertIn("javascript", headers["Content-Type"])
             self.assertFalse((cp.STATIC / "copilot-launcher.js").exists())   # no private copy of it
