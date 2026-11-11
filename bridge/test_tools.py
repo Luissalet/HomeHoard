@@ -1,3 +1,4 @@
+from pathlib import Path
 import unittest
 
 import inventory
@@ -18,9 +19,10 @@ class ToolsTest(unittest.TestCase):
 
     def test_catalogue_follows_the_family_contract(self):
         names = [t["name"] for t in T.catalog()]
-        for old in ("home_find_item", "home_inventory_status", "home_list_location"):
-            self.assertIn(old, names)
-        self.assertEqual(len(names), 19)
+        for name in ("home_find_item", "home_inventory_status", "home_list_location",
+                     "home_3d_scene", "home_3d_locate", "home_3d_export", "home_plan_openings"):
+            self.assertIn(name, names)
+        self.assertEqual(len(names), 23)
         for t in T.catalog():
             first = t["description"].splitlines()[0]
             self.assertLessEqual(len(first), 110, t["name"])
@@ -28,7 +30,7 @@ class ToolsTest(unittest.TestCase):
             self.assertEqual(t["inputSchema"]["type"], "object")
         read_only = {t["name"] for t in T.catalog() if t["annotations"]["readOnlyHint"]}
         self.assertEqual(read_only, {"home_warranties", "home_find_item", "home_inventory_status", "home_list_location", "home_check_list", "home_item_papers", "home_manual_search",
-                                     "maintenance_list", "maintenance_templates"})
+                                     "maintenance_list", "maintenance_templates", "home_3d_scene", "home_3d_locate"})
 
     def test_existing_tools_read_the_live_home(self):
         found = self.call("home_find_item", query="¿Dónde está la linterna phillips?")
@@ -40,6 +42,19 @@ class ToolsTest(unittest.TestCase):
         status = self.call("home_inventory_status")
         self.assertEqual((status["ready"], status["items"], status["source"]), (True, 3, "live"))
         self.assertEqual(self.call("home_find_item", query="taladro")["status"], "not_found")
+
+    def test_house_3d_uses_the_saved_plan_and_exports_a_glb(self):
+        room = self.app.store.get("rooms", "storage")
+        self.app.store.merge({"rooms": [{**room, "x_cm": 100, "y_cm": 50, "width_cm": 320, "height_cm": 280, "updated_at": 2_000}]})
+        scene = self.call("home_3d_scene", detail=True)
+        self.assertEqual(scene["stats"]["rooms"], 3)
+        self.assertGreater(scene["stats"]["walls"], 0)
+        located = self.call("home_3d_locate", query="torch")
+        self.assertEqual(located["status"], "found")
+        self.assertIn("/casa3d", located["url"])
+        exported = self.call("home_3d_export", format="glb")
+        self.assertTrue(exported["ok"])
+        self.assertEqual(Path(exported["path"]).read_bytes()[:4], b"glTF")
 
     def test_add_update_and_move_items_through_the_merge(self):
         before = self.app.store.info()["version"]

@@ -197,6 +197,8 @@ class HomeStore:
                         self._place_photo(rec, old, photos.get(rec["id"]), mode, notes)
                     if table == "maintenance_tasks" and old and old.get("kafka_deadline_id") and not rec.get("kafka_deadline_id"):
                         rec["kafka_deadline_id"] = old["kafka_deadline_id"]
+                    if table == "rooms" and old and old.get("openings_json") and "openings_json" not in rec:
+                        rec["openings_json"] = old["openings_json"]   # an app that predates doors and windows never drops them
                     if old == rec:
                         ignored += 1
                         continue

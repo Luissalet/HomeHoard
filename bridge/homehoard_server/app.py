@@ -20,6 +20,7 @@ from . import config as C
 from . import copilot as copilotmod
 from . import tools as T
 from . import agenda as AG
+from . import house3d as H3
 from .hoard_link import family, fam_refs
 from .hoard_link.atomic import write_text_atomic
 from .hoard_link.tokens import check_bearer, read_or_create_token, write_url
@@ -32,7 +33,10 @@ SAFE_METHODS = ("GET", "HEAD", "OPTIONS")
 MAX_BODY = 20_000_000
 MAX_SYNC_BODY = 80_000_000
 UPLOAD_KINDS = ("invoice", "receipt", "warranty", "manual", "contract", "other", "")
-DEFAULT_SETTINGS = {"kafka_mirror": True}
+DEFAULT_SETTINGS = {"kafka_mirror": True, **H3.DEFAULT_SETTINGS}
+HOUSE3D_STATIC = Path(__file__).resolve().parent / "static" / "casa3d"
+STATIC_TYPES = {".js": "text/javascript; charset=utf-8", ".css": "text/css; charset=utf-8", ".html": "text/html; charset=utf-8",
+                ".json": "application/json; charset=utf-8", ".svg": "image/svg+xml", ".png": "image/png", ".txt": "text/plain; charset=utf-8"}
 
 
 def host_of(value: Optional[str]) -> str:
@@ -90,32 +94,52 @@ class App:
         self.ctx = T.Ctx(self.store, self.kafka, self.mirror, clock, self.emit, app_url=f"http://127.0.0.1:{self.port}")
         self.lock_announced = threading.Lock()
         self.ctx.announced = self._mark_announced
+        self.ctx.settings = self.settings
+        self.ctx.save_settings = self.set_settings
+        self.ctx.exports_dir = self.paths.data / "exports"
+        self._vulcan_probe: tuple[float, dict[str, Any]] = (0.0, {})
         self.token = read_or_create_token(self.paths.token)
         self.copilot = copilotmod.install(self.paths.data)   # the Faustus panel relay; None with HOARD_COPILOT=0
         self.store.listeners.append(self._changed)
         self._kafka_probe: tuple[float, dict[str, Any]] = (0.0, {})
 
     # ---------------------------------------------------------------- setup
-    def settings(self) -> dict[str, Any]:
+    def _stored_settings(self) -> dict[str, Any]:
         try:
             values = json.loads(self.paths.settings.read_text(encoding="utf-8"))
         except (OSError, ValueError):
             values = {}
-        return {**DEFAULT_SETTINGS, **{k: v for k, v in values.items() if k in DEFAULT_SETTINGS}}
+        return {k: v for k, v in values.items() if k in DEFAULT_SETTINGS} if isinstance(values, dict) else {}
+
+    def settings(self) -> dict[str, Any]:
+        stored = self._stored_settings()
+        return {**DEFAULT_SETTINGS, **stored, **H3.clean_settings(stored)}
 
     def set_settings(self, values: dict[str, Any]) -> dict[str, Any]:
-        current = self.settings()
+        stored = self._stored_settings()       # only what was chosen is written; the rest stays at its default
         for key, value in (values or {}).items():
-            if key == "kafka_mirror":
+            if key in ("kafka_mirror", "infer_doors"):
                 if not isinstance(value, bool):
-                    raise T.ToolError("invalid", "kafka_mirror es true o false.")
-                current[key] = value
+                    raise T.ToolError("invalid", f"{key} es true o false.")
+            elif key == "wall_height_cm":
+                low, high = H3.WALL_HEIGHT_RANGE
+                if isinstance(value, bool) or not isinstance(value, (int, float)) or not low <= value <= high:
+                    raise T.ToolError("invalid", f"wall_height_cm va de {low} a {high} cm.")
+                value = int(value)
             else:
                 raise T.ToolError("invalid", f"Ajuste desconocido: {key}.")
-        write_text_atomic(self.paths.settings, json.dumps(current, ensure_ascii=False))
+            stored[key] = value
+        write_text_atomic(self.paths.settings, json.dumps(stored, ensure_ascii=False))
         if self.mirror:
             self.mirror.wake()
-        return current
+        return self.settings()
+
+    def vulcan_status(self, force: bool = False) -> dict[str, Any]:
+        at, cached = self._vulcan_probe
+        if force or not cached or self.clock() - at > 20:
+            cached = T.vulcan_status(self.ctx)
+            self._vulcan_probe = (self.clock(), cached)
+        return cached
 
     def _announced(self) -> set[str]:
         try:
@@ -330,6 +354,27 @@ def make_handler(app: App) -> type[BaseHTTPRequestHandler]:
                     self._json(200, app.kafka_status(force="force" in parse_qs(url.query)))
                 elif path == "/api/maintenance/templates":
                     self._json(200, T.t_maint_templates(app.ctx, {}))
+                elif path == "/casa3d" or path.startswith("/casa3d/"):
+                    self._house3d(path[len("/casa3d"):].lstrip("/"), parse_qs(url.query))
+                elif path == "/api/house3d/scene":
+                    home = (parse_qs(url.query).get("home") or [""])[0]
+                    self._json(200, T.call(app.ctx, "home_3d_scene", {"detail": True, **({"home": home} if home else {})}))
+                elif path == "/api/house3d/locate":
+                    q = parse_qs(url.query)
+                    query = (q.get("q") or q.get("query") or q.get("item") or [""])[0]
+                    limit = (q.get("limit") or ["8"])[0]
+                    self._json(200, T.call(app.ctx, "home_3d_locate", {"query": query, "limit": int(limit) if limit.isdigit() else 8}))
+                elif path in ("/api/house3d/export.glb", "/api/house3d/export.obj"):
+                    q = parse_qs(url.query)
+                    items = (q.get("items") or [""])[0]
+                    scale = (q.get("scale") or ["100"])[0]
+                    built = T.export_bytes(app.ctx, path.rsplit(".", 1)[1], home=(q.get("home") or [""])[0],
+                                           include_items=None if items == "" else items not in ("0", "false", "no"),
+                                           scale=float(scale) if scale.replace(".", "", 1).isdigit() else 100.0)
+                    self._send(200, built["data"], "model/gltf-binary" if built["name"].endswith(".glb") else "model/obj",
+                               {"Content-Disposition": f'attachment; filename="{built["name"]}"', "Cache-Control": "no-store"})
+                elif path == "/api/house3d/vulcan":
+                    self._json(200, app.vulcan_status(force="force" in parse_qs(url.query)))
                 elif path.startswith("/photos/"):
                     self._photo(path[len("/photos/"):])
                 elif path == "/icon.png":
@@ -375,6 +420,10 @@ def make_handler(app: App) -> type[BaseHTTPRequestHandler]:
                     self._json(200, T.call(app.ctx, str(body.get("tool") or body.get("name") or ""), body.get("arguments")))
                 elif path == "/api/settings":
                     self._json(200, app.set_settings(self._body()))
+                elif path == "/api/house3d/export":
+                    self._json(200, T.call(app.ctx, "home_3d_export", self._body()))
+                elif path == "/api/house3d/openings":
+                    self._json(200, T.call(app.ctx, "home_plan_openings", self._body()))
                 elif path == "/api/kafka/search":
                     self._json(200, app.kafka_search(self._body()))
                 elif path == "/api/kafka/upload":
@@ -427,6 +476,24 @@ def make_handler(app: App) -> type[BaseHTTPRequestHandler]:
                 self._page(path.read_bytes())
             except OSError:
                 self._json(404, {"error": "No encontrado"})
+
+        def _house3d(self, rel: str, query: dict[str, list[str]]) -> None:
+            """The 3D view: its page (with the Faustus launcher unless it is embedded in the app) and its static files."""
+            root = HOUSE3D_STATIC.resolve()
+            target = (root / (rel or "index.html")).resolve()
+            try:
+                target.relative_to(root)
+                body = target.read_bytes()
+            except (ValueError, OSError):
+                self._json(404, {"error": "No encontrado"})
+                return
+            if not rel:
+                if app.copilot is not None and "embed" not in query:
+                    body = copilotmod.inject(body)
+                self._send(200, body, "text/html; charset=utf-8", {"Cache-Control": "no-cache"})
+                return
+            ctype = STATIC_TYPES.get(target.suffix.lower()) or "application/octet-stream"
+            self._send(200, body, ctype, {"Cache-Control": "public, max-age=86400" if rel.startswith("vendor/") else "no-cache"})
 
         def _photo(self, name: str) -> None:
             item_id = re.sub(r"\.(jpg|png|webp)$", "", name)

@@ -10,6 +10,8 @@ Funciona sin cuenta ni servicios externos. **El ordenador guarda la casa**: el s
 
 ## Qué hace (ya implementado)
 
+- **Ver la casa en 3D.** Abre la vista desde el plano para consultar habitaciones, muebles, puertas y ventanas. El servidor local genera la escena a partir del plano guardado. `home_3d_locate` centra un objeto del inventario y `home_3d_export` exporta GLB u OBJ.
+
 - **Buscar todos los kits guardados:** búsqueda por nombre y notas sin distinguir acentos o mayúsculas, páginas y selección de kits de distintas páginas sin perder el editor. Consulta [la guía de búsqueda](docs/kits-search.md).
 
 - **Mapa 2D** de la planta con habitaciones y muebles (SVG), zoom y navegación por toques.

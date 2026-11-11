@@ -826,7 +826,7 @@ export class SqliteSource implements DataSource {
         await this.d.runAsync('INSERT INTO floor (id, home_id, name, level_index, width_cm, height_cm, created_at, updated_at, deleted_at) VALUES (?,?,?,?,?,?,?,?,?)', [r.id, r.home_id, r.name, r.level_index, r.width_cm, r.height_cm, r.created_at, r.updated_at, r.deleted_at]);
       }
       for (const r of d.rooms) {
-        await this.d.runAsync('INSERT INTO room (id, floor_id, name, kind, color, shape, x_cm, y_cm, width_cm, height_cm, rotation, points_json, created_at, updated_at, deleted_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)', [r.id, r.floor_id, r.name, r.kind, r.color, r.shape, r.x_cm, r.y_cm, r.width_cm, r.height_cm, r.rotation, r.points_json, r.created_at, r.updated_at, r.deleted_at]);
+        await this.d.runAsync('INSERT INTO room (id, floor_id, name, kind, color, shape, x_cm, y_cm, width_cm, height_cm, rotation, points_json, openings_json, created_at, updated_at, deleted_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)', [r.id, r.floor_id, r.name, r.kind, r.color, r.shape, r.x_cm, r.y_cm, r.width_cm, r.height_cm, r.rotation, r.points_json, r.openings_json ?? null, r.created_at, r.updated_at, r.deleted_at]);
       }
       for (const r of d.containers) {
         await this.d.runAsync('INSERT INTO container (id, room_id, parent_container_id, name, kind, icon, x_cm, y_cm, width_cm, height_cm, rotation, created_at, updated_at, deleted_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)', [r.id, r.room_id, r.parent_container_id, r.name, r.kind, r.icon, r.x_cm, r.y_cm, r.width_cm, r.height_cm, r.rotation, r.created_at, r.updated_at, r.deleted_at]);

@@ -8,6 +8,8 @@ A **fully local home inventory**. Record where things live and find them by name
 
 ## Features available now
 
+- **See the home in 3D.** Open the view from the floor plan to inspect rooms, furniture, doors and windows. The local server builds the scene from the saved plan. Use `home_3d_locate` to focus an inventory item and `home_3d_export` to save GLB or OBJ.
+
 - **Find every saved kit:** search names and notes without case/accent differences, browse pages, and combine kits from different pages while preserving your editor and visible selection. See [kit search](docs/kits-search.md).
 
 - Editable SVG floor plan with rooms and furniture, zoom, drag, corner resizing and grid snapping.
