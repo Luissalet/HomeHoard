@@ -2,134 +2,116 @@
 
 [Español](README.es.md)
 
-A **fully local home inventory**. Record where things live and find them by name, room, furniture or a question to Faustus such as “Where did I put the Philips flashlight?” No account or cloud service is required. **The computer holds the home**: the HomeHoard server (`python bridge/server.py`, loopback only on `127.0.0.1:5196`) keeps the whole inventory and its photos, serves the web app and answers Faustus. The web app syncs with it and keeps a copy in the browser so it keeps working offline. The mobile app uses SQLite on the device and moves its data to the computer with a local JSON export.
+A fully local home inventory: record where things live and find them by name, room, furniture or by asking Faustus "Where did I put the Philips flashlight?".
 
-> Detailed design: [`HomeHoard_Spec-Tecnico_ModeloDatos-Plano2D-UI.md`](HomeHoard_Spec-Tecnico_ModeloDatos-Plano2D-UI.md) (Spanish).
+## What it is
 
-## Features available now
+HomeHoard keeps a hierarchy of Home > Floor > Room > Furniture > Item, with photos, tags, quantities, appliance data sheets, warranties and maintenance tasks. No account or cloud service is needed.
 
-- **See the home in 3D.** Open the view from the floor plan to inspect rooms, furniture, doors and windows. The local server builds the scene from the saved plan. Use `home_3d_locate` to focus an inventory item and `home_3d_export` to save GLB or OBJ.
+The computer holds the home. The HomeHoard server (`python bridge/server.py`, loopback only on `127.0.0.1:5196`) keeps the whole inventory and its photos, serves the web app and answers Faustus. The web app syncs with it and keeps an offline copy in the browser. The mobile app uses SQLite on the device and moves its data to the computer through a local JSON export. A detailed design (data model, 2D plan, UI) is in [`HomeHoard_Spec-Tecnico_ModeloDatos-Plano2D-UI.md`](HomeHoard_Spec-Tecnico_ModeloDatos-Plano2D-UI.md) (Spanish).
 
-- **Find every saved kit:** search names and notes without case/accent differences, browse pages, and combine kits from different pages while preserving your editor and visible selection. See [kit search](docs/kits-search.md).
+## What it does
 
-- Editable SVG floor plan with rooms and furniture, zoom, drag, corner resizing and grid snapping.
-- Nested Home › Floor › Room › Furniture › Item hierarchy, including drawers inside other furniture.
-- Quick item entry with a photo, context-selected location, tags, quantity and favorite flag; duplicate warnings and “save and add another”.
-- Accent-insensitive, multiword relevance search across names, notes, tags and locations. An empty search shows favorites and recent items.
-- Quick quantity, move, favorite and delete actions; undoable deletion backed by tombstones.
+**Inventory**
+- Quick item entry with a photo, location chosen from context, tags, quantity and favourite flag; duplicate warnings and "save and add another".
+- Accent-insensitive, multiword relevance search across names, notes, tags and locations; an empty search shows favourites and recent items.
+- Quick quantity, move, favourite and delete actions; deletion is undoable (tombstones).
 - Room and furniture views that include nested contents, inventory statistics and manageable tags.
-- **Packing lists and kits through Faustus**: compare requested quantities with recorded stock, combine repeated object IDs, and show shortages with the full locations. The check reads one inventory snapshot and changes no quantities or locations.
-- Portable JSON backup with embedded photos. Old version 1 backups remain importable; version 2 fails if a local photo cannot be included rather than silently losing it.
-- Printable QR labels for items and furniture, with an offline scanner that opens the matching record or reports that it no longer exists.
-- **Appliance card** per object: brand, model, serial number, purchase date and shop, price, warranty end (typed or taken from Kafka), manual link, consumables and spare parts (name, spec such as «CR2032 ×2», quantity, last bought) and notes. Collapsible; shows only filled fields when not editing.
-- **Recorded warranties**: Home's **Consultar garantías** opens `/warranties` in the connected web app. Filter expiring/active/expired/missing date/all, horizon, reference date and room or nested container; page through dates, remaining days, stored provenance and full locations, with links to object cards. Uses the same `home_warranties` calculation as API/MCP, without querying Kafka or inferring a legal term. Apply filters explicitly; an empty reference date uses the computer's date. Unavailable in the example house or device-only inventory.
-- **Papers in Kafka's Hoard**: link Kafka documents (invoice, receipt, warranty, manual) to an object, see their title, kind, date and the warranty status with its basis and citation, search Kafka to link one, upload an invoice or manual to Kafka (manuals with kind `manual`), and search inside the linked manuals with page citations.
-- **Maintenance**: tasks on an object, piece of furniture, room or the home, every N days or months, optionally in a given month. A **Mantenimiento** tab (overdue, this month, upcoming, or by place), mark done with date, note, cost and who, history, pause, a date fixed by hand, and a maintenance block on item and room pages with template suggestions.
-- **Templates with their basis** (checked 2026-10-02). Legal duties state their norm: gas boiler in a dwelling (≤ 70 kW) at least every 2 years by an authorised company (RITE, RD 1027/2007, IT 3.3; many makers ask for a yearly service); gas installation every 5 years (RD 919/2006, ITC-ICG 07); air conditioning or heat pump up to 12 kW every 4 years, 12–70 kW every 2 years (RITE IT 3.3). Everything else is presented as advice.
-- **Purchases and agenda for the family**: `item_add_from_purchase`, the prefilled `#/add` form and the maintenance agenda described below.
-- **Reminders through Kafka**: with **Avisar mediante Kafka** on (default), each active task is kept as one Kafka deadline (stable key, no duplicates, the norm or «Recomendación» in its explanation); marking it done moves the deadline, deleting or pausing closes it; while Kafka or the hub is unreachable the change is queued and retried, and the tab says why.
-- The Hoard family's **dark theme** by default (background #1c1814, amber accent, serif titles); the earlier light palette is available in **Ajustes → Apariencia**. The Home header shows where the home is kept: synced with the computer, offline, or «En este dispositivo» on the phone.
-- An empty first launch. A sample home loads only when explicitly selected.
+- Printable QR labels for items and furniture, with an offline scanner that opens the matching record.
+- Portable JSON backup with embedded photos; older backup versions remain importable.
+- An empty first launch; a sample home loads only when you select it.
 
-## The computer holds the home
+**Plan and 3D**
+- Editable SVG floor plan with rooms and furniture: zoom, drag, corner resizing, grid snapping.
+- 3D view of the home built from the saved plan (rooms, furniture, doors, windows). `home_3d_locate` focuses an inventory item and `home_3d_export` saves GLB or OBJ.
 
-- `python bridge/server.py` (or `npm run server`, or from Faustus / the hub) serves `http://127.0.0.1:5196`. State lives in `data/home.json` (every record with `updated_at` and a `deleted_at` tombstone, atomic writes through the family library, a growing `version`); photos are files in `data/photos/`. The access token (`data/mcp-token`) is created once and kept across restarts; `data/url` records the address.
-- `npm run build:web` exports the web app into `bridge/web/`, served at `/` with deep links. Without the export, `/` explains how to build it.
-- The web app (served by the server, or on `localhost`/`127.0.0.1` while the server answers) loads `/api/home`, keeps `localStorage` as an offline copy, pushes changes to `/api/home/sync` (debounced, retried) and polls `/api/home/version` every few seconds to pick up changes made by Faustus. Offline it shows «Sin conexión con el ordenador»; edits wait in the browser. A browser with older local data uploads it the first time it finds the computer.
-- **Merge rule**: per record, the newest `updated_at` wins; a tombstone wins a tie. Item-tag links have id `<item>:<tag>` and tombstones too. Photos become server files. The example house is never sent.
-- **Import backups** (from the phone): `http://127.0.0.1:5196/importar`, or Settings → Import in the connected web app. Versions 1, 2, 3 and 4 are accepted and merged with the same rule; a backup without photos never deletes one.
-- **Update Faustus now** forces a sync. `data/faustus-inventory.json` (photo-free) is still written for compatibility; Faustus now reads the live home.
+**Appliances, warranties and papers**
+- Appliance card per object: brand, model, serial number, purchase date and shop, price, warranty end, manual link, consumables and spare parts, notes.
+- Warranty overview (`/warranties`, `home_warranties`): filter expiring, active, expired or missing date, by horizon, reference date and room; shows days left, recorded source and full location. It reads the stored cards and never infers a legal term.
+- Papers in Kafka's Hoard: link invoices, receipts, warranties and manuals to an object, see the warranty status with its basis and citation, upload papers, and search inside linked manuals with page citations.
 
-## Faustus and the family
+**Maintenance**
+- Tasks on an object, furniture, room or the home, every N days or months, optionally in a given month. A Mantenimiento tab (overdue, this month, upcoming, by place), mark done with date, note, cost and who, history, pause and fixed dates.
+- Templates state their basis: legal duties name the norm (gas boiler servicing under the RITE regulation, gas installation review, air-conditioning inspection), everything else is presented as advice.
+- Reminders through Kafka: with "Avisar mediante Kafka" on (default) each active task is kept as one Kafka deadline, moved when marked done and closed when deleted or paused; if Kafka or the hub is away the change is queued and retried.
 
-When the MCP bridge autostarts HomeHoard, a short-lived launcher exits after spawning the server. HomeHoard stays available after its stdio MCP host disconnects. This removes the parent-child process-tree link; it does not guarantee survival if an enclosing Windows Job Object terminates its processes when it closes.
+**Packing lists and kits**
+- Compare requested quantities with recorded stock (`home_check_list`): repeated ids are combined and shortages are shown with full locations. The check reads one snapshot and changes nothing.
+- Saved reusable kits (`home_kits`), searchable by name and notes, which can be combined; the **Prepare a kit** page (`/kits`) edits them and checks stock. Temporary collection checkmarks never move stock. See [`docs/PACKING_LISTS.md`](docs/PACKING_LISTS.md) and [`docs/kits-search.md`](docs/kits-search.md).
 
-`bridge/mcp_server.py` is the stdio MCP bridge (the family's shared catalogue bridge): it proxies every call to the server with the token in `data/mcp-token`, starts the server (`python -m homehoard_server`) when needed (`HOMEHOARD_BRIDGE_AUTOSTART=0` disables that), refreshes the tool list when it goes stale, forwards the app's error details and answers `outcome_unknown` when a write loses its connection, so the assistant reads the state before repeating it. The server answers the family contract (`GET /api/agent/tools`, `POST /api/agent/call` with `Authorization: Bearer <token>`), emits events on the hub's bus and records each call.
+**Purchases**
+- `item_add_from_purchase` files something that was bought (shop, price, date, source reference, warranty paper) idempotently; without a matching place the object goes to a "Por colocar" room. The prefilled form `#/add?name=...` opens the add form with those values.
 
-Tools (19): `home_check_list`, `home_kits`, `home_find_item`, `home_list_location`, `home_inventory_status`, `home_add_item`, `item_add_from_purchase`, `home_update_item`, `home_move_item`, `home_item_details`, `home_warranties`, `home_item_papers`, `home_manual_search`, `maintenance_list`, `maintenance_add`, `maintenance_done`, `maintenance_update`, `maintenance_delete` (`confirm=true`), `maintenance_templates`. Writes return the new state. Papers, manuals and reminders reach Kafka's Hoard through the hub (`family.call`) and say plainly when the hub or Kafka is not available.
+**Appearance**
+- Dark theme by default with the family's palette; a light palette is available in Ajustes > Apariencia. The header shows whether the home is synced with the computer, offline or on the device.
 
-**Prepare a kit**: first find the objects, then call `home_check_list` with
-`requests=[{"item_id":"<id>","quantity":2}, ...]` (1–100 entries). Requests for the
-same ID are added together in first-seen order. Each result includes the recorded
-`available`, `requested`, `to_pack`, `missing`, status and full `location`.
-`ready` means all recorded quantities cover the list. The tool returns the
-`inventory_version` it checked; repeating it checks the current state again.
-Missing/deleted IDs and unknown quantities remain `null`, with
-`totals_complete=false`; they never mean zero stock. This check is a calculation and does not reserve stock. Named reusable definitions can be saved with `home_kits`; use `home_check_list(kit=...)` to check them again. They travel in web sync and version 4 backups. In the connected web app, **Prepare a kit** on Home opens `/kits`: search inventory objects, choose quantities, save/read/edit/delete definitions and check stock with full locations and shortages. Temporary collection checkmarks count only the available units and reset on a new check; they never deduct or move stock and are not packing history. The page uses the same `home_kits` / `home_check_list` tools as Faustus. Native phones still exchange definitions through JSON rather than syncing; the editor explains when the computer is unavailable. See [examples and reference](docs/PACKING_LISTS.md).
+## Run it
 
-Events: `homehoard.item.created {item_id, source_ref}` (every new object; `homehoard.item.added` is still emitted by `home_add_item`), `homehoard.maintenance.done`, `homehoard.maintenance.due {task_id, title, due, url, item_id}` once per task when it becomes due (its day, or up to 2 days late if the app was off; a task whose date moves is announced again), and once a day `homehoard.maintenance.upcoming {count, tasks}` with the tasks due within 7 days.
-
-**Purchases**: `item_add_from_purchase {name, source_ref?, price?, merchant?, date?, room?, place?, warranty_ref?}` files something that was bought and returns `{ok, status, item_id, url}`. Shop, price, purchase date, `source_ref` (`hoard://app/kind/id`) and `warranty_ref` go on the appliance card (a `hoard://kafka/document/<id>` warranty paper is also linked as a Kafka paper). `room` and `place` accept names or a path like «Cocina › Cajón rojo»; without a place, or if it does not match, the object goes to a **Por colocar** room that is created on first use (a `warning` says why). The call is idempotent by `source_ref` and name, tells the hub's graph (`from_purchase`) and never loses a purchase. Objects filed from the web form with a `source_ref` are announced the same way, once.
-
-**Prefilled form**: the address `#/add?name=…&source_ref=…&price=…&merchant=…&date=…&room=…&place=…` (also `warranty_ref`) opens **Añadir objeto** with the name filled in, the room and furniture chosen when their names match, a «Desde una compra» note, and the card saved with the object. Invalid values are ignored.
-
-**Agenda**: `GET /api/family/agenda?from&to&sphere` (bearer token) lists the maintenance tasks that are due in the window as `kind: maintenance` all-day items; overdue tasks are always listed (high priority, like legal ones); paused and deleted tasks are not. Every item carries `dedupe_key: homehoard:<task id>`, the key Kafka's mirror files the same deadline under, so a hub can show the task once.
-
-## Faustus copilot
-
-Every page the server serves (the web app and `/importar`) has a floating **Faustus** button that opens a side panel with the Faustus chat. The agent sees the object, room or furniture you have open and works on it with the same tools Faustus already reaches through the MCP bridge. Conversation, model, tools and memory live in Faustus; HomeHoard keeps no chat loop and no history. It is part of the web app served by the computer; the phone app (Expo Go / native) does not have it.
-
-What the panel sends with every turn (`window.hoardCopilot.context()` in [`bridge/homehoard_server/static/copilot.js`](bridge/homehoard_server/static/copilot.js)), read from the computer's copy of the home (`GET /api/home`, downloaded again only when its version changes), so what an agent changed a moment ago is already in it:
-
-- `project`: the home (`external_project_id` = home id, `title`); one conversation per home. For an object, room or furniture it is the home it belongs to; with several homes the first one on the list pages.
-- `active_objects` on `/item/<id>`, `/room/<id>` and `/container/<id>`: the object (`kind: "item"`: name, quantity, favorite, note, full location, tags, the data sheet: brand, model, serial, purchase, store, price, warranty end, paper count, consumables, and its maintenance tasks), the room (floor, furniture with how many objects each holds, loose objects, capped at 25) or the furniture (where it stands, its contents, the containers inside it). An object absent from the computer is included only when its real row exists in the browser offline store (`unsynced: true`). The list pages (home, plan, search, settings, maintenance, add) have `[]`.
-- `view`: `page` (`home`, `plan`, `search`, `maintenance`, `settings`, `add`, `scan`, `item`, `room`, `container`, `import`) and, on the list pages, `summary`: counts and rooms with their object count; on Mantenimiento the tasks grouped like the tab (overdue / this month / later, paused ones left out) and the next eight due.
-- `view.editor`: text typed and not saved: the new-object form (`new_item`: name and details), changes to the open object (`edit_item`: only the fields that differ from what is saved), the search box (`search`), the manual search (`manual_search`) and any other field with text in it (`form`).
-
-When a turn ends the page is told to sync with the computer at once (the app already does it when the window gets focus) instead of waiting for its next poll, and what you had typed stays as it was.
-
-The relay is the vendored Hoard Link `CopilotRelay` (`hoard_link/copilot_stdlib.py`, standard library only like the rest of the server), wired in by [`bridge/homehoard_server/copilot.py`](bridge/homehoard_server/copilot.py), which also adds the page script and the shared launcher to the pages the app serves (routes: `GET /api/copilot/info`, `GET /api/copilot/panel.js`, `POST /api/copilot/proxy`, `GET /api/copilot/launcher.js`, and `GET /copilot.js` for the page script). The Faustus token stays on the server, `origin.app_id` / `data_space_id` are forced and only the copilot paths of Faustus can be reached (anything else answers 400). The routes sit behind the same family guard as the rest (loopback Host, local Origin, Fetch Metadata) and need no token, like the web app. The page script is plain JavaScript served by the bridge, so it does not depend on `npm run build:web`. Faustus is found through `HOMEHOARD_FAUSTUS_URL` / `HOARD_FAUSTUS_URL` (plus `HOARD_FAUSTUS_TOKEN`) or the Hoard Link config, falling back to `127.0.0.1:7000` / `7001`. **To turn it off** start the server with `HOARD_COPILOT=0`: no routes, no button, nothing injected (`/api/health` says `"copilot": false`). `faustus-plugin.json` declares it under `x-family.copilot`.
-
-The item form keeps local drafts while accepting native updates to untouched fields. While online it sends only edited fields to the atomic item-patch route, so saving a note preserves the agent's quantity, location, tags and photo changes. Text entered while Save is pending remains on screen for the next Save. A URL id with no browser or computer row sends no active object; verified offline rows remain available. The native MCP catalogue still has 19 tools.
-
-## Run
-
-Requires Node.js 18 or newer for the app and Python 3.11+ for the server (standard library only, including the vendored family library; `pip install -r bridge/requirements.txt` adds `mcp` for the Faustus bridge and optionally `httpx`).
+Requires Node.js 18 or newer for the app and Python 3.11+ for the server (standard library only; `pip install -r bridge/requirements.txt` adds `mcp` for the Faustus bridge).
 
 ```sh
 npm install
 npm run build:web
 python bridge/server.py   # http://127.0.0.1:5196
-npm run web     # browser (development; connects to the server when it is running)
+npm run web     # browser, development; connects to the server when it runs
 npm start       # Expo Go or native build
 npm run android
 npm run ios
 ```
 
-Environment: `HOMEHOARD_DATA_DIR` (default `data/`), `HOMEHOARD_PORT` (5196), `HOMEHOARD_WEB_DIR` (default `bridge/web`), `HOARD_HUB_URL`; for the MCP bridge `HOMEHOARD_URL`, `HOMEHOARD_TOKEN_FILE`, `HOMEHOARD_BRIDGE_AUTOSTART`. Server setting (`data/settings.json`, changed in the Mantenimiento tab): `kafka_mirror`.
+| Variable | Purpose |
+| --- | --- |
+| `HOMEHOARD_DATA_DIR` | Data folder (default `data/`). |
+| `HOMEHOARD_PORT` | Server port (default `5196`). |
+| `HOMEHOARD_WEB_DIR` | Exported web app (default `bridge/web`). |
+| `HOARD_HUB_URL` | Where the family hub is. |
+| `HOMEHOARD_URL`, `HOMEHOARD_TOKEN_FILE`, `HOMEHOARD_BRIDGE_AUTOSTART` | MCP bridge: server URL, token file, and whether the bridge starts the server. |
 
-The QR scanner uses `expo-camera`; adding its camera permission requires a new native build. Mobile uses the system print dialog; web uses browser printing.
+The QR scanner uses `expo-camera`; adding its permission needs a new native build.
+
+**How the computer holds the home**
+- State lives in `data/home.json` (every record with `updated_at` and a `deleted_at` tombstone, atomic writes); photos are files in `data/photos/`. The access token (`data/mcp-token`) is created once and kept across restarts.
+- `npm run build:web` exports the web app into `bridge/web/`, served at `/` with deep links.
+- The web app loads the home from the server, keeps `localStorage` as an offline copy, pushes changes (debounced, retried) and polls for changes made by Faustus. Offline it says so and edits wait in the browser.
+- Merge rule: per record the newest `updated_at` wins and a tombstone wins a tie. Photos become server files; the sample home is never sent.
+- Backups from the phone are imported at `http://127.0.0.1:5196/importar` or in Settings > Import (versions 1 to 4, merged with the same rule; a backup without photos never deletes one).
+
+## Connect to Faustus and the Hoard family
+
+- **MCP bridge**: `bridge/mcp_server.py` is a stdio bridge that proxies every call to the server with the token in `data/mcp-token`, starts the server when needed, refreshes its tool list, and answers `outcome_unknown` when a write loses its connection so the assistant reads the state before repeating it. The server answers the family contract (`GET /api/agent/tools`, `POST /api/agent/call`). The API reference is in [`docs/API.md`](docs/API.md).
+- **Tool groups**:
+
+| Area | Tools |
+| --- | --- |
+| Find and read | `home_find_item`, `home_list_location`, `home_item_details`, `home_inventory_status` |
+| Change | `home_add_item`, `item_add_from_purchase`, `home_update_item`, `home_move_item` |
+| Packing | `home_check_list`, `home_kits` |
+| Warranties and papers | `home_warranties`, `home_item_papers`, `home_manual_search` |
+| Maintenance | `maintenance_list`, `maintenance_add`, `maintenance_done`, `maintenance_update`, `maintenance_delete` (`confirm=true`), `maintenance_templates` |
+| Plan and 3D | `home_plan_openings`, `home_3d_scene`, `home_3d_locate`, `home_3d_export` |
+
+- **Hub**: papers, manuals and reminders reach Kafka's Hoard through the hub and say plainly when the hub or Kafka is not available. Events: `homehoard.item.created`, `homehoard.maintenance.done`, `homehoard.maintenance.due` and a daily `homehoard.maintenance.upcoming`. The family agenda (`GET /api/family/agenda`) lists maintenance tasks as all-day items, overdue ones with high priority, each with a dedupe key so a hub shows a task once.
+- **Copilot**: every page the server serves has a floating Faustus button. The assistant sees the object, room or furniture you have open (location, data sheet, maintenance tasks), the current page and any text typed and not saved. When a turn ends the page syncs at once and keeps what you typed. Conversation, model and tools live in Faustus; the phone app does not have the panel. The item form sends only the fields you edited, so an agent's concurrent changes are preserved.
+- **Skills**: `household-inventory-and-maintenance` is offered to connecting agents.
 
 ## Architecture and checks
 
-One `DataSource` interface has a mobile `expo-sqlite` implementation and a web memory implementation persisted to `localStorage` and synced with the server (`src/db/serverSync.ts`). Shared rules live in `src/db/records.ts` (tables, merge, bundles 1/2/3), `src/db/mutations.ts` and `src/features/maintenanceCore.ts`; the server repeats them in `bridge/homehoard_server/` and `tests/maintenance-cases.json` checks both sides. Templates live in `shared/maintenance-templates.json`. `bridge/homehoard_server/hoard_link/` is the vendored family library.
+One `DataSource` interface has a mobile `expo-sqlite` implementation and a web implementation persisted to `localStorage` and synced with the server (`src/db/serverSync.ts`). Shared rules live in `src/db/` and `src/features/maintenanceCore.ts`; the server repeats them in `bridge/homehoard_server/`, and `tests/maintenance-cases.json` checks both sides. Maintenance templates live in `shared/maintenance-templates.json`. `bridge/homehoard_server/hoard_link/` is the vendored family library.
 
-Limits: the phone stays local-only and moves data with JSON; papers, manuals and Kafka reminders need the computer, the hub and Kafka's Hoard 0.2+; changes made to a mirrored deadline inside Kafka stay in Kafka; on an exact `updated_at` tie between two devices with different content each side keeps its own (tombstones excepted).
+| Path | Contents |
+| --- | --- |
+| `app/`, `src/` | Expo / React Native app and web app |
+| `bridge/` | Python server, MCP bridge and server tests |
+| `shared/` | Maintenance templates |
+| `docs/` | API, packing lists, kit search |
+| `tests/` | Node tests |
 
 ```sh
 npm test
 npm run typecheck
-python -m unittest discover -s bridge -p 'test_*.py'   # server: merge, photos, backups, tools, Kafka, HTTP
+python -m unittest discover -s bridge -p 'test_*.py'   # server
 ```
 
+Limits: the phone stays local-only and moves data with JSON; papers, manuals and Kafka reminders need the computer, the hub and Kafka's Hoard; changes made to a mirrored deadline inside Kafka stay in Kafka; on an exact `updated_at` tie between two devices with different content each side keeps its own (tombstones excepted).
+
 License: AGPL-3.0-or-later.
-
-## Reusable packing kits
-
-Prepare several saved kits together with **Combinar kits** in `/kits` or
-`home_check_list(kits=[id_or_name,...])` through Faustus/MCP. Shared object
-quantities are summed before comparing with the same stock; each row shows
-which kits need it. Repeated references to the same kit count once. The check
-uses saved definitions, preserves the editor draft and reserves no stock.
-
-`home_kits` saves, lists, reads and deletes named kit definitions. Saving the same name reuses its ID; identical saves change nothing. `home_check_list(kit="Weekend trip")` checks current stock and full locations, including changed quantities and missing objects. Saving a kit changes no object quantity or location. Definitions survive web sync and version 4 backups, including native SQLite import/export; the phone still transfers JSON. [Workflow and limits](docs/PACKING_LISTS.md#reusable-kits).
-
-## Warranty overview through Faustus
-
-`home_warranties` lists recorded local warranty dates by status (`expiring`, `expired`, `active`, `unknown`, or `all`), optional room/furniture, and reference date. Expiring includes today through `days` ahead (default 90). Results are sorted by end date and include the full location, days left, and recorded source. Nested furniture is included; pagination returns `next_offset`. Missing or invalid dates are counted separately. This reads appliance cards without querying Kafka, changing inventory or inferring a legal warranty term; a date previously copied from Kafka remains the locally recorded date.
-
-Example: `home_warranties(as_of="2026-10-06", days=14, location="Cocina")`. To list dates already passed, use `status="expired"`.
-
-## Skills for the agents that connect
-
-This app carries procedures from the skill library of the family's workspace for the agents that connect to it: `household-inventory-and-maintenance`. They are named in what an agent reads on connecting, read with `skills_list` and `skill_read`, searched and assigned with `skills_library` and `skills_assign`, and offered as prompts. The person chooses them on the skills page (`/api/agent/skills/page`) or in the hub's Skills tab; the `skills` block of `faustus-plugin.json` holds what the app asks for by default.
