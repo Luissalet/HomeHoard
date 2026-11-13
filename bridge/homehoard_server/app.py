@@ -23,6 +23,7 @@ from . import agenda as AG
 from . import house3d as H3
 from .hoard_link import family, fam_refs
 from .hoard_link.atomic import write_text_atomic
+from .hoard_link.guard import _dock_origins, _url_origin
 from .hoard_link.tokens import check_bearer, read_or_create_token, write_url
 from .kafka import KafkaLink, KafkaMirror
 from .pages import IMPORT_PAGE, NO_WEB_PAGE
@@ -50,6 +51,13 @@ def host_of(value: Optional[str]) -> str:
     return host.split(":", 1)[0]
 
 
+def docked(method: str, headers: Any) -> bool:
+    """A framed GET navigation whose parent page is a known Faustus origin (the App Dock)."""
+    lowered = {str(key).lower(): value for key, value in headers.items()}
+    parent = _url_origin(lowered.get("referer", ""))
+    return bool(parent) and parent in tuple(_dock_origins(method, lowered))
+
+
 def check_request(method: str, headers: Any) -> Optional[str]:
     """The family guard: local Host, local Origin, no cross-site requests except navigations, no form posts."""
     if host_of(headers.get("Host")) not in LOCAL_HOSTS:
@@ -58,7 +66,7 @@ def check_request(method: str, headers: Any) -> Optional[str]:
     if origin and origin != "null" and host_of(origin) not in LOCAL_HOSTS:
         return "Origen no permitido"
     site, mode, dest = headers.get("Sec-Fetch-Site"), headers.get("Sec-Fetch-Mode"), headers.get("Sec-Fetch-Dest")
-    if site == "cross-site" and (mode != "navigate" or dest in ("iframe", "frame", "embed", "object")):
+    if site == "cross-site" and (mode != "navigate" or dest in ("iframe", "frame", "embed", "object")) and not docked(method, headers):
         return "No se admiten peticiones de otros sitios."
     if mode == "navigate" and method.upper() not in SAFE_METHODS:
         return "No se admiten envíos de formularios."

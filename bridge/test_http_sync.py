@@ -143,5 +143,14 @@ class ServerHttpTest(unittest.TestCase):
             self.assertEqual((code, body["ok"], body["reason"]), (200, False, "hub_down"))
 
 
+class DockFramingTests(unittest.TestCase):
+    def test_framed_navigation_needs_a_known_faustus_parent(self):
+        from homehoard_server.app import check_request
+        local = {"Host": "127.0.0.1:5196", "Sec-Fetch-Site": "cross-site", "Sec-Fetch-Mode": "navigate", "Sec-Fetch-Dest": "iframe"}
+        self.assertIsNone(check_request("GET", {**local, "Referer": "http://127.0.0.1:7000/"}))
+        self.assertIsNotNone(check_request("GET", {**local, "Referer": "https://evil.example/"}))
+        self.assertIsNotNone(check_request("GET", {**local, "Sec-Fetch-Dest": "embed", "Referer": "http://127.0.0.1:7000/"}))
+
+
 if __name__ == "__main__":
     unittest.main()
