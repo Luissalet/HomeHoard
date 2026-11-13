@@ -52,3 +52,7 @@ The page side is `window.hoardCopilot` (`bridge/homehoard_server/static/copilot.
 An unknown URL id with no computer or browser row has no active object. A verified row in the browser's persisted offline store may be sent with `unsynced: true`. The item form compares against its saved baseline, preserves dirty fields as native updates arrive, and sends only edited fields through the atomic patch route while online. A later edit during Save remains on screen for the next Save. Existing offline/local record synchronization stays available; the 19 native MCP tools retain their catalogue.
 
 The context captures its route, form values, local rows, heading and date before awaiting the computer. Navigating during that read does not replace the original turn's screen or pending draft; the next context request reads the new screen.
+
+## App Dock
+
+The server can be framed inside the Faustus App Dock: a framed navigation (`iframe`/`frame`, GET only) passes the request guard (`check_request`) when the page that opens it is a known Faustus origin, the same rule as the family's common guard. Foreign origins and `embed`/`object` frames are still rejected. Covered by `bridge/test_http_sync.py::DockFramingTests`.
