@@ -18,6 +18,7 @@ import inventory
 from . import APP_ID, SERVICE, VERSION
 from . import config as C
 from . import copilot as copilotmod
+from . import homeassistant as HA
 from . import tools as T
 from . import agenda as AG
 from . import house3d as H3
@@ -34,8 +35,9 @@ SAFE_METHODS = ("GET", "HEAD", "OPTIONS")
 MAX_BODY = 20_000_000
 MAX_SYNC_BODY = 80_000_000
 UPLOAD_KINDS = ("invoice", "receipt", "warranty", "manual", "contract", "other", "")
-DEFAULT_SETTINGS = {"kafka_mirror": True, **H3.DEFAULT_SETTINGS}
+DEFAULT_SETTINGS = {"kafka_mirror": True, "ha_url": "", "ha_token": "", "ha_notify": True, **H3.DEFAULT_SETTINGS}
 HOUSE3D_STATIC = Path(__file__).resolve().parent / "static" / "casa3d"
+HA_STATIC = Path(__file__).resolve().parent / "static" / "homeassistant"
 STATIC_TYPES = {".js": "text/javascript; charset=utf-8", ".css": "text/css; charset=utf-8", ".html": "text/html; charset=utf-8",
                 ".json": "application/json; charset=utf-8", ".svg": "image/svg+xml", ".png": "image/png", ".txt": "text/plain; charset=utf-8"}
 
@@ -100,6 +102,8 @@ class App:
         self.mirror = KafkaMirror(self.store, self.kafka, paths=self.paths, settings=self.settings, app_url=f"http://127.0.0.1:{self.port}",
                                   clock=clock, emit=self.emit) if mirror else None
         self.ctx = T.Ctx(self.store, self.kafka, self.mirror, clock, self.emit, app_url=f"http://127.0.0.1:{self.port}")
+        self.ha = HA.Gateway(self.paths, self.settings, clock=clock, emit=self.emit, app_url=f"http://127.0.0.1:{self.port}")
+        self.ctx.ha = self.ha
         self.lock_announced = threading.Lock()
         self.ctx.announced = self._mark_announced
         self.ctx.settings = self.settings
@@ -126,9 +130,20 @@ class App:
     def set_settings(self, values: dict[str, Any]) -> dict[str, Any]:
         stored = self._stored_settings()       # only what was chosen is written; the rest stays at its default
         for key, value in (values or {}).items():
-            if key in ("kafka_mirror", "infer_doors"):
+            if key in ("kafka_mirror", "infer_doors", "ha_notify"):
                 if not isinstance(value, bool):
                     raise T.ToolError("invalid", f"{key} es true o false.")
+            elif key == "ha_url":
+                if not isinstance(value, str):
+                    raise T.ToolError("invalid", "ha_url es una dirección http:// o https://.")
+                try:
+                    value = HA.normalize_url(value)
+                except HA.HaError as exc:
+                    raise T.ToolError(exc.code, exc.message, exc.hint) from exc
+            elif key == "ha_token":
+                if not isinstance(value, str):
+                    raise T.ToolError("invalid", "ha_token es el token de larga duración.")
+                value = value.strip()
             elif key == "wall_height_cm":
                 low, high = H3.WALL_HEIGHT_RANGE
                 if isinstance(value, bool) or not isinstance(value, (int, float)) or not low <= value <= high:
@@ -141,6 +156,11 @@ class App:
         if self.mirror:
             self.mirror.wake()
         return self.settings()
+
+    def public_settings(self) -> dict[str, Any]:
+        """The settings the web app may see: the Home Assistant token is never sent back, only whether it is set."""
+        values = self.settings()
+        return {**values, "ha_token": "", "ha_token_set": bool(str(values.get("ha_token") or ""))}
 
     def vulcan_status(self, force: bool = False) -> dict[str, Any]:
         at, cached = self._vulcan_probe
@@ -197,11 +217,13 @@ class App:
         family.configure(APP_ID, str(self.paths.data))
         if self.mirror:
             self.mirror.start()
+        self.ha.start()
 
     # ---------------------------------------------------------------- views
     def health(self) -> dict[str, Any]:
         return {"service": SERVICE, "app": APP_ID, "version": VERSION, "ok": True, **inventory.status(), "store": self.store.info(),
-                "web": (self.web / "index.html").is_file(), "hoard_link": family.health_block(), "copilot": self.copilot is not None}
+                "web": (self.web / "index.html").is_file(), "hoard_link": family.health_block(), "copilot": self.copilot is not None,
+                "homeassistant": {"configured": self.ha.config() is not None, "connected": self.ha.connected}}
 
     def kafka_status(self, force: bool = False) -> dict[str, Any]:
         at, cached = self._kafka_probe
@@ -357,13 +379,17 @@ def make_handler(app: App) -> type[BaseHTTPRequestHandler]:
                 elif path == "/api/agent/tools":
                     self._json(200, {"app": APP_ID, "tools": T.catalog(), "instructions": T.INSTRUCTIONS})
                 elif path == "/api/settings":
-                    self._json(200, app.settings())
+                    self._json(200, app.public_settings())
+                elif path == "/api/homeassistant/status":
+                    self._json(200, app.ha.status(probe="probe" in parse_qs(url.query)))
                 elif path == "/api/kafka/status":
                     self._json(200, app.kafka_status(force="force" in parse_qs(url.query)))
                 elif path == "/api/maintenance/templates":
                     self._json(200, T.t_maint_templates(app.ctx, {}))
                 elif path == "/casa3d" or path.startswith("/casa3d/"):
                     self._house3d(path[len("/casa3d"):].lstrip("/"), parse_qs(url.query))
+                elif path == "/homeassistant" or path.startswith("/homeassistant/"):
+                    self._ha_page(path[len("/homeassistant"):].lstrip("/"))
                 elif path == "/api/house3d/scene":
                     home = (parse_qs(url.query).get("home") or [""])[0]
                     self._json(200, T.call(app.ctx, "home_3d_scene", {"detail": True, **({"home": home} if home else {})}))
@@ -427,7 +453,8 @@ def make_handler(app: App) -> type[BaseHTTPRequestHandler]:
                         raise T.ToolError("invalid", "Se espera {tool, arguments}.")
                     self._json(200, T.call(app.ctx, str(body.get("tool") or body.get("name") or ""), body.get("arguments")))
                 elif path == "/api/settings":
-                    self._json(200, app.set_settings(self._body()))
+                    app.set_settings(self._body())
+                    self._json(200, app.public_settings())
                 elif path == "/api/house3d/export":
                     self._json(200, T.call(app.ctx, "home_3d_export", self._body()))
                 elif path == "/api/house3d/openings":
@@ -502,6 +529,22 @@ def make_handler(app: App) -> type[BaseHTTPRequestHandler]:
                 return
             ctype = STATIC_TYPES.get(target.suffix.lower()) or "application/octet-stream"
             self._send(200, body, ctype, {"Cache-Control": "public, max-age=86400" if rel.startswith("vendor/") else "no-cache"})
+
+        def _ha_page(self, rel: str) -> None:
+            """The Home Assistant page: the connection, the entities and the rules, in the app's own palette."""
+            root = HA_STATIC.resolve()
+            target = (root / (rel or "index.html")).resolve()
+            try:
+                target.relative_to(root)
+                body = target.read_bytes()
+            except (ValueError, OSError):
+                self._json(404, {"error": "No encontrado"})
+                return
+            if target.suffix == ".html":
+                self._page(body)
+                return
+            ctype = STATIC_TYPES.get(target.suffix.lower()) or "application/octet-stream"
+            self._send(200, body, ctype, {"Cache-Control": "no-cache"})
 
         def _photo(self, name: str) -> None:
             item_id = re.sub(r"\.(jpg|png|webp)$", "", name)

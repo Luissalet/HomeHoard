@@ -29,6 +29,8 @@ Use home_warranties for a dated overview of warranties approaching expiry, alrea
 Purchases: item_add_from_purchase files a bought thing (name, price, shop, date, warranty paper, where it came from) in a room or furniture, or in the «Por colocar» room when the place is not known. It is idempotent by source_ref and name.
 The house in 3D is built from the 2D plan, never drawn again: home_3d_scene describes it (rooms, walls, doors, windows, furniture, where each object sits, what is overdue), home_3d_locate answers «¿dónde está…?» with the spot in the house and a link that opens the 3D view looking at the object, home_3d_export writes it as GLB (or OBJ, and files it in Vulcan's Hoard with send_to_vulcan). home_plan_openings lists, adds or removes the doors and windows of a room's wall and sets the wall height; without real doors, two rooms that touch get a supposed one.
 Maintenance: maintenance_list (overdue, this month, upcoming), maintenance_done, maintenance_add (from maintenance_templates or custom). Legal tasks carry their norm (RITE, RD 919/2006); the rest are advice and must be presented as such. Papers, warranties and manuals live in Kafka's Hoard: home_item_papers and home_manual_search reach it through the hub and say when it is not available."""
+INSTRUCTIONS += """
+Home Assistant is the gateway to the house's devices when the person has one: ha_list_entities and ha_get_state read what the instance reports, ha_call_service acts (light/turn_on, climate/set_temperature, script/…), and ha_watch keeps the rules «when X changes to Y, notify or call Z» that run on the instance's event bus. Quote states only from tool results; when the instance is not configured or does not answer, say so instead of guessing. A rule's notification goes through the family's notifications, so the person is told the way the hub decides."""
 
 
 class ToolError(Exception):
@@ -55,6 +57,7 @@ class Ctx:
     save_settings: Optional[Callable[[dict[str, Any]], dict[str, Any]]] = None
     exports_dir: Optional[Path] = None                                  # where exported files are written (<data>/exports)
     family_call: Optional[Callable[..., dict[str, Any]]] = None         # call a tool of another Hoard through the hub (default: the family library)
+    ha: Any = None                                                      # the Home Assistant gateway (entities, services, rules)
 
     def spawn(self, fn: Callable[[], Any]) -> None:
         def safe() -> None:
@@ -1187,6 +1190,73 @@ DETAILS_SET = {"type": "object", "description": "Fields to save (only these chan
                "source_ref and warranty_ref (hoard://app/kind/id references), "
                "consumables (list of {name, spec, qty, last_bought}; replaces).", "additionalProperties": True}
 
+# ====================================================================== Home Assistant
+def _ha(ctx: Ctx) -> Any:
+    """The gateway, or a clear error when the instance is not configured yet."""
+    if ctx.ha is None:
+        raise ToolError("not_configured", "Home Assistant no está disponible en este servidor.")
+    return ctx.ha
+
+
+def _ha_call(fn: Callable[[], Any]) -> Any:
+    """Run one gateway call and turn its refusal into the tool layer's error."""
+    from .homeassistant import HaError
+    try:
+        return fn()
+    except HaError as exc:
+        raise ToolError(exc.code, exc.message, exc.hint) from exc
+
+
+def t_ha_entities(ctx: Ctx, a: dict[str, Any]) -> dict[str, Any]:
+    domain = _arg(a, "domain", str, "")
+    q = _arg(a, "q", str, "")
+    limit = _arg(a, "limit", int, 200)
+    offset = _arg(a, "offset", int, 0)
+    if not 1 <= limit <= 500:
+        raise ToolError("invalid", "limit va de 1 a 500.")
+    if offset < 0:
+        raise ToolError("invalid", "offset no puede ser negativo.")
+    return _ha_call(lambda: _ha(ctx).entities(domain=domain, q=q, limit=limit, offset=offset, force=bool(a.get("refresh"))))
+
+
+def t_ha_state(ctx: Ctx, a: dict[str, Any]) -> dict[str, Any]:
+    return _ha_call(lambda: _ha(ctx).state(_arg(a, "entity_id", str, required=True)))
+
+
+def t_ha_call_service(ctx: Ctx, a: dict[str, Any]) -> dict[str, Any]:
+    data = a.get("data")
+    if data is not None and not isinstance(data, dict):
+        raise ToolError("invalid", "data es un objeto JSON con los campos del servicio.")
+    return _ha_call(lambda: _ha(ctx).call_service(_arg(a, "domain", str, required=True),
+                                                  _arg(a, "service", str, required=True), data or {}))
+
+
+def t_ha_watch(ctx: Ctx, a: dict[str, Any]) -> dict[str, Any]:
+    """The rules: list, save, delete, run one now, or read the recent events of the bus."""
+    action = _arg(a, "action", str, "list")
+    gateway = _ha(ctx)
+    if action == "list":
+        rules = gateway.list_rules()
+        return {"rules": rules, "count": len(rules), "status": gateway.status()}
+    if action == "events":
+        limit = _arg(a, "limit", int, 20)
+        if not 1 <= limit <= 100:
+            raise ToolError("invalid", "limit va de 1 a 100.")
+        return {"events": gateway.events(limit), "connected": gateway.connected, "last_error": gateway.last_error}
+    if action == "save":
+        values = {k: a[k] for k in ("name", "entity_id", "from_state", "to_state", "notify_title", "notify_body", "priority",
+                                    "service_domain", "service_name", "service_data", "enabled", "cooldown_s") if k in a}
+        return {"rule": _ha_call(lambda: gateway.save_rule(values, _arg(a, "rule", str, "")))}
+    if action == "delete":
+        return _ha_call(lambda: gateway.delete_rule(_arg(a, "rule", str, required=True), bool(a.get("confirm"))))
+    if action == "run":
+        rule = next((r for r in gateway.list_rules() if r.get("id") == _arg(a, "rule", str, required=True)), None)
+        if rule is None:
+            raise ToolError("not_found", "Esa regla no existe.")
+        return {"ok": True, "ran": gateway.fire(rule, old=str(rule.get("from_state") or ""), new=str(rule.get("to_state") or ""))}
+    raise ToolError("invalid", "action es list, save, delete, run o events.")
+
+
 TOOLS: list[Tool] = [
     Tool("home_find_item", _d("Find household objects by name, tag or location and give the full path. ¿Dónde está…? Buscar objeto.",
                               "Accepts Spanish questions and small spelling errors. If there is no match, say so; never invent a location. "
@@ -1343,6 +1413,40 @@ TOOLS: list[Tool] = [
                "width_cm": {"type": "number", "minimum": 30}, "sill_cm": {"type": "number", "minimum": 0}, "height_cm": {"type": "number", "minimum": 30},
                "wall_height_cm": I("Wall height, 200–400.", minimum=200, maximum=400), "infer_doors": B("Supposed doors between rooms that touch.")}),
          False, t_plan_openings),
+    Tool("ha_list_entities", _d("List the entities of Home Assistant with their state. Listar dispositivos y estados de Home Assistant.",
+                                "Filters by domain (light, switch, sensor, climate, binary_sensor…) and by text in the id or the name, accent-insensitive. "
+                                "Paginate with offset and limit; total is the full count. States come from the instance's REST API.",
+                                "qué luces hay, estado de los sensores, entidades de casa, dispositivos conectados, temperatura del salón"),
+         _obj({"domain": S("Only this domain, e.g. light."), "q": S("Text in the entity id or its name."),
+               "limit": I("Page size, 1–500 (default 200).", minimum=1, maximum=500), "offset": I("Entities to skip.", minimum=0),
+               "refresh": B("Read the instance again instead of the few-seconds cache.")}), True, t_ha_entities),
+    Tool("ha_get_state", _d("Read one entity of Home Assistant: state, unit and attributes. Estado de un dispositivo.",
+                            "Needs the exact entity_id (light.salon). Says plainly when the instance is not configured or does not answer.",
+                            "cómo está la caldera, qué marca el termómetro, está encendida la luz, estado de"),
+         _obj({"entity_id": S("Exact entity id, e.g. sensor.salon_temperature.")}, ("entity_id",)), True, t_ha_state),
+    Tool("ha_call_service", _d("Call a Home Assistant service: turn a light on, set the climate, run a script. Encender, apagar, actuar.",
+                               "domain and service as Home Assistant names them (light/turn_on, climate/set_temperature, script/…); data carries the "
+                               "service fields (entity_id, brightness, temperature…). Returns the entities the instance reports as changed.",
+                               "enciende la luz del salón, apaga el aire, pon la calefacción a 21, ejecuta una escena, abre la persiana"),
+         _obj({"domain": S("Service domain, e.g. light."), "service": S("Service name, e.g. turn_on."),
+               "data": {"type": "object", "description": "Service fields: entity_id, brightness, temperature…", "additionalProperties": True}},
+              ("domain", "service")), False, t_ha_call_service),
+    Tool("ha_watch", _d("Rules «when X changes to Y, notify or call Z» on Home Assistant's event bus. Avisar cuando algo cambie.",
+                        "action=list (default) shows the rules and the bus status; save creates or updates one (rule=id to update); delete needs confirm=true; "
+                        "run fires one now; events shows the last state changes the bus delivered. entity_id accepts a wildcard suffix (light.*). "
+                        "A rule notifies through the family's notifications (notify_title/notify_body/priority) and/or calls a service "
+                        "(service_domain/service_name/service_data). cooldown_s avoids repeats. The bus is read over WebSocket while the server runs.",
+                        "avísame si se abre la puerta, cuando la temperatura pase de 25, reglas de casa, automatizar, escuchar cambios"),
+         _obj({"action": S("Operation", enum=["list", "save", "delete", "run", "events"]), "rule": S("Rule id (update, delete, run)."),
+               "name": S("Rule name."), "entity_id": S("Entity watched; light.* watches the whole domain."),
+               "from_state": S("Only when it comes from this state."), "to_state": S("Only when it changes to this state."),
+               "notify_title": S("Notification title; empty means no notification."), "notify_body": S("Notification body."),
+               "priority": S("low | normal | high | urgent", enum=["low", "normal", "high", "urgent"]),
+               "service_domain": S("Service to call, e.g. light."), "service_name": S("Service name, e.g. turn_on."),
+               "service_data": {"type": "object", "description": "Fields for that service.", "additionalProperties": True},
+               "enabled": B("Rule on or off."), "cooldown_s": I("Minimum seconds between two firings.", minimum=0),
+               "confirm": B("Confirm delete."), "limit": I("Events to show, 1–100.", minimum=1, maximum=100)}),
+         False, t_ha_watch),
 ]
 TOOLS_BY_NAME = {t.name: t for t in TOOLS}
 assert len(TOOLS_BY_NAME) == len(TOOLS)

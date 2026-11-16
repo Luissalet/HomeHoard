@@ -22,7 +22,7 @@ class ToolsTest(unittest.TestCase):
         for name in ("home_find_item", "home_inventory_status", "home_list_location",
                      "home_3d_scene", "home_3d_locate", "home_3d_export", "home_plan_openings"):
             self.assertIn(name, names)
-        self.assertEqual(len(names), 23)
+        self.assertEqual(len(names), 27)
         for t in T.catalog():
             first = t["description"].splitlines()[0]
             self.assertLessEqual(len(first), 110, t["name"])
@@ -30,7 +30,8 @@ class ToolsTest(unittest.TestCase):
             self.assertEqual(t["inputSchema"]["type"], "object")
         read_only = {t["name"] for t in T.catalog() if t["annotations"]["readOnlyHint"]}
         self.assertEqual(read_only, {"home_warranties", "home_find_item", "home_inventory_status", "home_list_location", "home_check_list", "home_item_papers", "home_manual_search",
-                                     "maintenance_list", "maintenance_templates", "home_3d_scene", "home_3d_locate"})
+                                     "maintenance_list", "maintenance_templates", "home_3d_scene", "home_3d_locate",
+                                     "ha_list_entities", "ha_get_state"})
 
     def test_existing_tools_read_the_live_home(self):
         found = self.call("home_find_item", query="¿Dónde está la linterna phillips?")

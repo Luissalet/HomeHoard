@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="es" data-hoard-app="homehoard">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="theme-color" content="#1c1814">
+<title>HomeHoard · Home Assistant</title>
+<link rel="icon" type="image/png" href="/icon.png">
+<link rel="stylesheet" href="/homeassistant/style.css">
+</head>
+<body>
+<header id="bar">
+  <a class="brand" href="/" title="Volver a la casa"><b>⌂</b><span>Home Assistant</span></a>
+  <div class="group" role="tablist" aria-label="Secciones">
+    <button id="tab-entities" class="seg on" type="button" role="tab">Dispositivos</button>
+    <button id="tab-rules" class="seg" type="button" role="tab">Reglas</button>
+    <button id="tab-connection" class="seg" type="button" role="tab">Conexión</button>
+  </div>
+  <span id="status" class="pill" title="Estado de la conexión">Sin configurar</span>
+</header>
+
+<main>
+  <!-- ------------------------------------------------------------ conexión -->
+  <section id="view-connection" hidden>
+    <h1>Conexión</h1>
+    <p class="lead">HomeHoard habla con tu Home Assistant por su API: lee los estados, llama a sus servicios y escucha su bus de eventos para avisarte cuando algo cambie.</p>
+    <form id="conn-form" autocomplete="off">
+      <label for="ha-url">Dirección</label>
+      <input id="ha-url" type="url" placeholder="http://homeassistant.local:8123" spellcheck="false">
+      <label for="ha-token">Token de larga duración</label>
+      <input id="ha-token" type="password" placeholder="Se guarda en este ordenador" spellcheck="false">
+      <p class="hint" id="token-hint">En Home Assistant: tu perfil › Seguridad › Tokens de acceso de larga duración › Crear token.</p>
+      <label class="check"><input id="ha-notify" type="checkbox"> Avisar por las notificaciones de la familia</label>
+      <div class="row">
+        <button class="primary" type="submit">Guardar</button>
+        <button id="conn-test" type="button">Probar conexión</button>
+      </div>
+      <p id="conn-msg" class="msg" role="status"></p>
+    </form>
+    <dl id="conn-info" class="facts"></dl>
+  </section>
+
+  <!-- ------------------------------------------------------------ dispositivos -->
+  <section id="view-entities" hidden>
+    <h1>Dispositivos</h1>
+    <div class="row filters">
+      <input id="ent-q" type="search" placeholder="Buscar por nombre o identificador" aria-label="Buscar entidad">
+      <select id="ent-domain" aria-label="Dominio"><option value="">Todos los dominios</option></select>
+      <button id="ent-refresh" type="button">Actualizar</button>
+    </div>
+    <p id="ent-count" class="hint"></p>
+    <ul id="ent-list" class="list"></ul>
+    <div class="row"><button id="ent-more" type="button" hidden>Cargar más</button></div>
+
+    <h2>Llamar a un servicio</h2>
+    <form id="svc-form" autocomplete="off">
+      <div class="row">
+        <input id="svc-domain" placeholder="dominio (light)" aria-label="Dominio del servicio" spellcheck="false">
+        <input id="svc-name" placeholder="servicio (turn_on)" aria-label="Nombre del servicio" spellcheck="false">
+      </div>
+      <textarea id="svc-data" rows="3" spellcheck="false" aria-label="Datos del servicio">{"entity_id": ""}</textarea>
+      <div class="row"><button class="primary" type="submit">Llamar</button></div>
+      <p id="svc-msg" class="msg" role="status"></p>
+    </form>
+  </section>
+
+  <!-- ------------------------------------------------------------ reglas -->
+  <section id="view-rules" hidden>
+    <h1>Reglas</h1>
+    <p class="lead">Cuando una entidad cambie a un estado, HomeHoard te avisa por las notificaciones de la familia y, si quieres, llama a un servicio de Home Assistant.</p>
+    <ul id="rule-list" class="list"></ul>
+
+    <h2 id="rule-form-title">Nueva regla</h2>
+    <form id="rule-form" autocomplete="off">
+      <input id="rule-id" type="hidden">
+      <label for="rule-entity">Entidad que se vigila</label>
+      <input id="rule-entity" placeholder="binary_sensor.puerta_entrada o light.*" spellcheck="false" required>
+      <div class="row">
+        <div class="field"><label for="rule-from">Desde el estado</label><input id="rule-from" placeholder="off" spellcheck="false"></div>
+        <div class="field"><label for="rule-to">Hasta el estado</label><input id="rule-to" placeholder="on" spellcheck="false"></div>
+      </div>
+      <label for="rule-name">Nombre de la regla</label>
+      <input id="rule-name" placeholder="Avisar si se abre la puerta">
+      <label for="rule-title">Título del aviso</label>
+      <input id="rule-title" placeholder="Puerta de entrada abierta">
+      <label for="rule-body">Texto del aviso</label>
+      <input id="rule-body" placeholder="Se ha abierto a las…">
+      <div class="row">
+        <div class="field"><label for="rule-priority">Prioridad</label>
+          <select id="rule-priority"><option value="low">Baja</option><option value="normal" selected>Normal</option><option value="high">Alta</option><option value="urgent">Urgente</option></select>
+        </div>
+        <div class="field"><label for="rule-cooldown">Espera entre avisos (s)</label><input id="rule-cooldown" type="number" min="0" step="10" value="60"></div>
+      </div>
+      <label for="rule-svc-domain">Llamar además a un servicio (opcional)</label>
+      <div class="row">
+        <input id="rule-svc-domain" placeholder="dominio (light)" spellcheck="false">
+        <input id="rule-svc-name" placeholder="servicio (turn_on)" spellcheck="false">
+      </div>
+      <textarea id="rule-svc-data" rows="2" spellcheck="false" aria-label="Datos del servicio de la regla">{}</textarea>
+      <label class="check"><input id="rule-enabled" type="checkbox" checked> Regla activa</label>
+      <div class="row">
+        <button class="primary" type="submit">Guardar regla</button>
+        <button id="rule-cancel" type="button">Limpiar</button>
+      </div>
+      <p id="rule-msg" class="msg" role="status"></p>
+    </form>
+
+    <h2>Últimos cambios escuchados</h2>
+    <p id="events-msg" class="hint"></p>
+    <ul id="event-list" class="list small"></ul>
+  </section>
+</main>
+<script type="module" src="/homeassistant/app.js"></script>
+</body>
+</html>

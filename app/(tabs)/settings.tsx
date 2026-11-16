@@ -197,6 +197,22 @@ export default function AjustesScreen() {
       </View>
 
       <View style={{ gap: space(2) }}>
+        <SectionTitle>Home Assistant</SectionTitle>
+        <Card>
+          <View style={styles.backupRow}>
+            <Ionicons name="home-outline" size={22} color={colors.accent} />
+            <View style={{ flex: 1 }}>
+              <Text style={styles.rowTitle}>Dispositivos y reglas de casa</Text>
+              <Text style={styles.dim}>Con la dirección y el token de tu Home Assistant, HomeHoard lee los estados de sus entidades, llama a sus servicios y te avisa cuando algo cambie. La conexión y las reglas se editan en la página del ordenador.</Text>
+            </View>
+          </View>
+          <View style={{ marginTop: space(3) }}>
+            <Button label="Abrir Home Assistant" variant="ghost" onPress={() => { void Linking.openURL(`${getServerSync()?.status.base || SERVER_URL}/homeassistant`); }} />
+          </View>
+        </Card>
+      </View>
+
+      <View style={{ gap: space(2) }}>
         <SectionTitle>Apariencia</SectionTitle>
         <Card>
           <Text style={styles.rowTitle}>Tema</Text>

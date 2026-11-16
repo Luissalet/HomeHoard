@@ -16,7 +16,9 @@
 | `POST /api/import` | import a JSON backup |
 | `GET /photos/<id>` | an object's photo |
 | `GET /importar` | the import page |
-| `GET /api/settings`, `POST /api/settings` | `kafka_mirror` |
+| `GET /api/settings`, `POST /api/settings` | `kafka_mirror`, `wall_height_cm`, `infer_doors`, `ha_url`, `ha_token`, `ha_notify`. The Home Assistant token is never returned: it comes back empty with `ha_token_set` |
+| `GET /api/homeassistant/status` | `{configured, url, token_set, connected, rules, last_event, last_error, last_notify}`; with `?probe=1` it also asks the instance (`reachable`, `version`, `location_name`, `entities`) |
+| `GET /homeassistant` | the Home Assistant page: connection, entities, service calls and rules |
 | `GET /api/kafka/status`, `POST /api/kafka/search`, `/api/kafka/upload`, `/api/kafka/mirror/run` | papers and reminders through the hub |
 | `GET /api/maintenance/templates` | maintenance templates |
 | `POST /api/ui/call` | `{tool, arguments}`: the web app runs a tool without the token |

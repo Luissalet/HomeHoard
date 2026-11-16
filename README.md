@@ -42,6 +42,11 @@ The computer holds the home. The HomeHoard server (`python bridge/server.py`, lo
 **Purchases**
 - `item_add_from_purchase` files something that was bought (shop, price, date, source reference, warranty paper) idempotently; without a matching place the object goes to a "Por colocar" room. The prefilled form `#/add?name=...` opens the add form with those values.
 
+**Home Assistant**
+- Connect a Home Assistant instance with its address and a long-lived token (Ajustes > Home Assistant, or the page `/homeassistant`): the token stays on this computer and is never sent back to the browser.
+- Entities and states (`ha_list_entities`, `ha_get_state`), filtered by domain and by text, with unit and attributes; service calls (`ha_call_service`) for lights, climate, scripts and the rest.
+- Rules «when X changes to Y, notify or call Z» (`ha_watch`): the server listens to the instance's event bus over WebSocket, and a matching change sends a notification through the family's notifications (toast, ntfy, Telegram or mail, with the hub's quiet hours and limits) and/or calls a service. Rules live in `data/homeassistant-rules.json`, accept a domain wildcard (`light.*`) and a cooldown. The page `/homeassistant` edits the connection, browses the entities, calls a service and manages the rules. See [`docs/HOME_ASSISTANT.md`](docs/HOME_ASSISTANT.md).
+
 **Appearance**
 - Dark theme by default with the family's palette; a light palette is available in Ajustes > Apariencia. The header shows whether the home is synced with the computer, offline or on the device.
 
@@ -89,6 +94,7 @@ The QR scanner uses `expo-camera`; adding its permission needs a new native buil
 | Warranties and papers | `home_warranties`, `home_item_papers`, `home_manual_search` |
 | Maintenance | `maintenance_list`, `maintenance_add`, `maintenance_done`, `maintenance_update`, `maintenance_delete` (`confirm=true`), `maintenance_templates` |
 | Plan and 3D | `home_plan_openings`, `home_3d_scene`, `home_3d_locate`, `home_3d_export` |
+| Home Assistant | `ha_list_entities`, `ha_get_state`, `ha_call_service`, `ha_watch` |
 
 - **Hub**: papers, manuals and reminders reach Kafka's Hoard through the hub and say plainly when the hub or Kafka is not available. Events: `homehoard.item.created`, `homehoard.maintenance.done`, `homehoard.maintenance.due` and a daily `homehoard.maintenance.upcoming`. The family agenda (`GET /api/family/agenda`) lists maintenance tasks as all-day items, overdue ones with high priority, each with a dedupe key so a hub shows a task once.
 - **Copilot**: every page the server serves has a floating Faustus button. The assistant sees the object, room or furniture you have open (location, data sheet, maintenance tasks), the current page and any text typed and not saved. When a turn ends the page syncs at once and keeps what you typed. Conversation, model and tools live in Faustus; the phone app does not have the panel. The item form sends only the fields you edited, so an agent's concurrent changes are preserved.
@@ -96,7 +102,7 @@ The QR scanner uses `expo-camera`; adding its permission needs a new native buil
 
 ## Architecture and checks
 
-One `DataSource` interface has a mobile `expo-sqlite` implementation and a web implementation persisted to `localStorage` and synced with the server (`src/db/serverSync.ts`). Shared rules live in `src/db/` and `src/features/maintenanceCore.ts`; the server repeats them in `bridge/homehoard_server/`, and `tests/maintenance-cases.json` checks both sides. Maintenance templates live in `shared/maintenance-templates.json`. `bridge/homehoard_server/hoard_link/` is the vendored family library.
+One `DataSource` interface has a mobile `expo-sqlite` implementation and a web implementation persisted to `localStorage` and synced with the server (`src/db/serverSync.ts`). Shared rules live in `src/db/` and `src/features/maintenanceCore.ts`; the server repeats them in `bridge/homehoard_server/`, and `tests/maintenance-cases.json` checks both sides. Maintenance templates live in `shared/maintenance-templates.json`. `bridge/homehoard_server/hoard_link/` is the vendored family library. `bridge/homehoard_server/homeassistant.py` holds the Home Assistant gateway (REST client, a small WebSocket client for the event bus, the rules and their notifications), and its page lives in `bridge/homehoard_server/static/homeassistant/`.
 
 | Path | Contents |
 | --- | --- |

@@ -42,6 +42,11 @@ El ordenador guarda la casa. El servidor de HomeHoard (`python bridge/server.py`
 **Compras**
 - `item_add_from_purchase` archiva de forma idempotente algo que se compró (tienda, precio, fecha, referencia de origen, papel de garantía); si no hay un lugar que coincida, el objeto va a una habitación «Por colocar». El formulario prerrellenado `#/add?name=...` abre el alta con esos valores.
 
+**Home Assistant**
+- Conecta una instancia de Home Assistant con su dirección y un token de larga duración (Ajustes > Home Assistant, o la página `/homeassistant`): el token se queda en este ordenador y nunca se devuelve al navegador.
+- Entidades y estados (`ha_list_entities`, `ha_get_state`), filtrados por dominio y por texto, con unidad y atributos; llamadas a servicios (`ha_call_service`) para luces, clima, scripts y lo demás.
+- Reglas «cuando X cambie a Y, avisa o haz Z» (`ha_watch`): el servidor escucha el bus de eventos de la instancia por WebSocket y, cuando un cambio coincide, manda un aviso por las notificaciones de la familia (toast, ntfy, Telegram o correo, con las horas de silencio y los límites del Hub) y/o llama a un servicio. Las reglas viven en `data/homeassistant-rules.json`, admiten comodín de dominio (`light.*`) y una espera entre avisos. La página `/homeassistant` edita la conexión, recorre las entidades, llama a un servicio y gestiona las reglas. Véase [`docs/HOME_ASSISTANT.md`](docs/HOME_ASSISTANT.md).
+
 **Apariencia**
 - Tema oscuro por defecto con la paleta de la familia; hay una paleta clara en Ajustes > Apariencia. La cabecera indica si la casa está sincronizada con el ordenador, sin conexión o en el dispositivo.
 
@@ -89,6 +94,7 @@ El lector de QR usa `expo-camera`; añadir su permiso exige una nueva compilaci�
 | Garantías y papeles | `home_warranties`, `home_item_papers`, `home_manual_search` |
 | Mantenimiento | `maintenance_list`, `maintenance_add`, `maintenance_done`, `maintenance_update`, `maintenance_delete` (`confirm=true`), `maintenance_templates` |
 | Plano y 3D | `home_plan_openings`, `home_3d_scene`, `home_3d_locate`, `home_3d_export` |
+| Home Assistant | `ha_list_entities`, `ha_get_state`, `ha_call_service`, `ha_watch` |
 
 - **Hub**: los papeles, manuales y avisos llegan a Kafka's Hoard por el hub y dicen con claridad cuando el hub o Kafka no están disponibles. Eventos: `homehoard.item.created`, `homehoard.maintenance.done`, `homehoard.maintenance.due` y un `homehoard.maintenance.upcoming` diario. La agenda familiar (`GET /api/family/agenda`) lista las tareas de mantenimiento como elementos de día completo, las vencidas con prioridad alta, cada una con una clave de deduplicación para que un hub muestre la tarea una sola vez.
 - **Copiloto**: cada página que sirve el servidor tiene un botón flotante de Faustus. El asistente ve el objeto, habitación o mueble que tienes abierto (ubicación, ficha, tareas de mantenimiento), la página actual y el texto escrito sin guardar. Al terminar un turno la página se sincroniza de inmediato y conserva lo que habías escrito. La conversación, el modelo y las herramientas viven en Faustus; la app del móvil no tiene el panel. El formulario del objeto envía solo los campos que editaste, así que se respetan los cambios simultáneos de un agente.
